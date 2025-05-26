@@ -20,30 +20,6 @@ This repository hosts the computational models, analysis scripts, and data assoc
 * [Contact](#contact)
 
 ---
-Repository Structure
-
-your-repo-name/
-├── .github/                 # GitHub specific configurations
-├── data/                    # All input and output data
-│   ├── input/               # Initial input files (e.g., starting PDBs, experimental data)
-│   ├── processed/           # Intermediate processed data
-│   ├── scores/              # Score files for all generated models
-│   └── selected_models/     # PDB files of the *selected* models highlighted in the paper
-├── models/                  # Code and configurations for generating computational models
-│   ├── scripts/             # Scripts for running simulations/predictions
-│   └── configs/             # Configuration files for model generation
-├── analysis/                # Scripts and notebooks for data analysis and figure generation
-│   ├── scripts/             # Python/R scripts for data processing and analysis
-│   └── notebooks/           # Jupyter notebooks for interactive analysis and plot generation
-├── results/                 # Final output files, especially figures and tables for the paper
-│   ├── figures/             # All plots shown in the paper (high-resolution)
-│   └── tables/              # Supplementary tables
-├── src/                     # Core reusable code modules
-├── environment.yml          # Conda environment file for dependency management
-├── README.md                # This file
-├── LICENSE                  # Project license
-└── .gitignore               # Files/directories to ignore
----
 
 ## Setup and Installation
 
