@@ -20,34 +20,7 @@ This repository hosts the computational models, analysis scripts, and data assoc
 * [Contact](#contact)
 
 ---
-
-## Repository Structure
-
-The repository is organized to provide a clear separation between input data, model generation code, analysis scripts, and final results.
-
-
-your-repo-name/
-├── .github/                 # GitHub specific configurations
-├── data/                    # All input and output data
-│   ├── input/               # Initial input files (e.g., starting PDBs, experimental data)
-│   ├── processed/           # Intermediate processed data
-│   ├── scores/              # Score files for all generated models
-│   └── selected_models/     # PDB files of the selected models highlighted in the paper
-├── models/                  # Code and configurations for generating computational models
-│   ├── scripts/             # Scripts for running simulations/predictions
-│   └── configs/             # Configuration files for model generation
-├── analysis/                # Scripts and notebooks for data analysis and figure generation
-│   ├── scripts/             # Python/R scripts for data processing and analysis
-│   └── notebooks/           # Jupyter notebooks for interactive analysis and plot generation
-├── results/                 # Final output files, especially figures and tables for the paper
-│   ├── figures/             # All plots shown in the paper (high-resolution)
-│   └── tables/              # Supplementary tables
-├── src/                     # Core reusable code modules
-├── environment.yml          # Conda environment file for dependency management
-├── README.md                # This file
-├── LICENSE                  # Project license
-└── .gitignore               # Files/directories to ignore
-
+#repository structure??
 ---
 
 ## Setup and Installation
@@ -78,12 +51,6 @@ This section provides a step-by-step guide to reproduce the key results and figu
 
 ### Input Data
 
-The primary input data required for our models and analysis are located in the `data/input/` directory. This includes:
-
-* **Initial Protein Structures (PDB files):** These are the starting structures for our modeling efforts, typically viral protein PDBs obtained from public databases or previous experimental work.
-* **Experimental Glycan Data (e.g., CSV, JSON):** Any experimental data used to guide or validate glycan placement or density.
-
-Please ensure these files are present in their respective subdirectories within `data/input/` before proceeding.
 
 ### Running the Models
 
@@ -93,19 +60,14 @@ The `models/` directory contains the scripts and configurations used to generate
     Execute the primary modeling script(s). For example, if using AlphaFold or a custom simulation:
 
     ```bash
-    python models/scripts/run_alphafold.py --config models/configs/alphafold_config.yaml
-    # or
-    bash models/scripts/run_md_sim.sh
+    rosetta_scripts etc
     ```
-
-    > **Note:** These scripts are designed to output the generated model structures (e.g., PDB files) and associated score files into the `models/outputs/` directory. The `data/selected_models/` directory contains only the final selected PDBs from these runs that are discussed in the paper.
-
-2.  **Process Model Outputs:**
-    After model generation, you might need to run a script to process the raw outputs into a format suitable for analysis (e.g., extracting specific metrics, preparing trajectories).
 
     ```bash
-    python data/processed/process_raw_model_outputs.py
+    rosetta_scripts etc
     ```
+
+
 
     This step will populate `data/scores/model_scores.csv` and potentially other files in `data/processed/`.
 
@@ -118,7 +80,6 @@ The `analysis/` directory contains the scripts and Jupyter notebooks used to per
 
     ```bash
     python analysis/scripts/analyze_scores.py
-    python analysis/scripts/process_trajectories.py
     ```
 
 2.  **Generate Figures:**
@@ -126,7 +87,6 @@ The `analysis/` directory contains the scripts and Jupyter notebooks used to per
 
     ```bash
     jupyter notebook analysis/notebooks/figure_1_generation.ipynb
-    jupyter notebook analysis/notebooks/supplementary_analysis.ipynb
     ```
 
     Running all cells in these notebooks will save the corresponding figures to the `results/figures/` directory.
@@ -141,27 +101,11 @@ Upon successful execution of the steps above, the following key outputs will be 
 * `results/tables/`: Any supplementary tables generated during the analysis.
 
 ---
-
-## Limitations
-
-While this repository provides a comprehensive framework for reproducing our paper's results, it's important to acknowledge the following limitations:
-
-* **Computational Resources:** Full reproduction of the model generation (e.g., extensive molecular dynamics simulations or large-scale protein folding predictions) may require significant computational resources (e.g., GPUs, HPC clusters) and time, which might not be readily available to all users. We have provided the selected output models to mitigate this.
-* **Software Dependencies:** While `environment.yml` aims for full reproducibility, minor version incompatibilities with underlying system libraries or specific hardware configurations might occasionally arise.
-* **Specific Software Versions:** Some modeling tools (e.g., commercial software or specific versions of open-source tools) might not be directly installable via `environment.yml` and may require manual installation or specific licensing. Instructions for these are provided in the `models/scripts/` comments where applicable.
-* **Scope:** The code and data are specifically tailored to the analyses presented in our paper. Adapting them for significantly different viral proteins or glycan structures might require modifications.
-
----
-
-## Contributing
-
-We welcome contributions to improve the code, extend the analysis, or fix any issues. Please refer to our [Contributing Guidelines](link-to-contributing-guidelines-if-you-create-one) for details on how to submit pull requests.
-
 ---
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under XXX
 
 ---
 
@@ -169,5 +113,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 For any questions, issues, or collaborations, please open an issue on this GitHub repository or contact:
 
-[Your Name/Team Name] - [your.email@example.com]
-[Link to your lab/project website (optional)]
+[Franz Dietzmeyer] - [franz.dietzmeyer@medizin.uni-leipzig.de]
+[Dieter S. Hoffmann ] - [dieter.hoffmann@medizin.uni-leipzig.de]
+[https://schoederlab.org/]
