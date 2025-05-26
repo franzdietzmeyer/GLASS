@@ -113,6 +113,6 @@ This project is licensed under XXX
 
 For any questions, issues, or collaborations, please open an issue on this GitHub repository or contact:
 
-[Franz Dietzmeyer] - [franz.dietzmeyer@medizin.uni-leipzig.de]
-[Dieter S. Hoffmann ] - [dieter.hoffmann@medizin.uni-leipzig.de]
+[Franz Dietzmeyer] - [franz.dietzmeyer@medizin.uni-leipzig.de]  
+[Dieter S. Hoffmann ] - [dieter.hoffmann@medizin.uni-leipzig.de]  
 [https://schoederlab.org/]
