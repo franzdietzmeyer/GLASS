@@ -30,18 +30,18 @@ To set up your environment and run the code, we recommend using **Conda** for de
 1.  **Clone the repository:**
 
     ```bash
-    git clone [https://github.com/your-username/your-repo-name.git](https://github.com/your-username/your-repo-name.git)
-    cd your-repo-name
+    git clone https://github.com/schoederlab/glycanmasking.git
+    cd workdir
     ```
 
 2.  **Create and activate the Conda environment:**
 
     ```bash
-    conda env create -f environment.yml
+    conda env create -f glycanmasking.yml
     conda activate glycan-masking-env
     ```
 
-    This will install all necessary Python packages and dependencies specified in `environment.yml`.
+    This will install all necessary Python packages and dependencies specified in `glycanmasking.yml`.
 
 ---
 
