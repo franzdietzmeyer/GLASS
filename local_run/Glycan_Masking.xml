@@ -1,0 +1,126 @@
+<ROSETTASCRIPTS>
+	<SCOREFXNS>
+       		# Use beta scorefunction for improved glycan scores
+        	<ScoreFunction name="beta" weights="beta"/>
+	</SCOREFXNS>
+	<RESIDUE_SELECTORS>
+        	# Select full pose 
+        	<True name="full_pose"/>
+
+        	<Index name="select" resnums="%%start%%"/>
+        	<PrimarySequenceNeighborhood name="motif" selector="select" lower="2" upper="2"/>
+
+        	# Select neighborhood of inserted motif by distance
+        	 reverse selection
+        	<Neighborhood name="neighbors" selector="select" distance="10.0"/>
+            		<Or name="combined" selectors="select,neighbors"/>
+            		<Not name="not_neighbors" selector="combined"/>
+
+        	# Select residues which should be stored
+        	<StoredResidueSubset name="store_native" subset_name="store_native"/>
+
+	</RESIDUE_SELECTORS>
+	<TASKOPERATIONS>
+		
+		<InitializeFromCommandline name="ifcl"/>
+        	<OperateOnResidueSubset name="restrict" selector="not_neighbors">
+            		<PreventRepackingRLT/>
+        	</OperateOnResidueSubset>
+	</TASKOPERATIONS>
+	
+	<SIMPLE_METRICS>
+        	# Calculate total_score
+        	<TotalEnergyMetric name="total_energy" use_native="0"/>
+        	# Calculate total_score after the design
+        	<TotalEnergyMetric name="total_energy_design" reference_name="store_native"/>
+
+        	<SequenceMetric name="sequence" residue_selector="motif"/>
+        	<SasaMetric name="sasa" residue_selector="select"/>
+        	<RMSDMetric name="RMSD" use_native="1" rmsd_type="rmsd_protein_bb_ca" residue_selector="full_pose"/>
+        	<RMSDMetric name="RMSD_motif" use_native="1" rmsd_type="rmsd_protein_bb_ca" residue_selector="combined"/>
+        	
+        	<PTMPredictionMetric name="glycosylation_prediction" residue_selector="select" modification="NlinkedGlycosylation" />
+      
+	</SIMPLE_METRICS>
+	<FILTERS>
+
+        	# Filter for total_score and RMSD
+        	<SimpleMetricFilter name="RMSD_filter" metric="RMSD" cutoff="%%rmsd_cutoff%%" comparison_type="lt_or_eq"/>
+        	<SimpleMetricFilter name="total_score_filter" metric="total_energy_design" cutoff="0" 
+        		comparison_type="lt_or_eq" use_cached_data="True" cache_prefix="r_"/>
+		<Delta name="dtotal_score" reference_name="store_native" filter="total_score_filter"/>
+	</FILTERS>
+	<MOVERS>
+        	# Insert the default sequon motif
+        	<CreateGlycanSequonMover name="motif_creator" basic_enhanced_n_sequon="%%enhanced%%" residue_selector="select" scorefxn="beta"/>
+
+        	# Run different metrics to add to the scorefile for later analysis
+        	<RunSimpleMetrics name="pre_metrics" metrics="sasa,total_energy,sequence" prefix="native_"/>
+        	<RunSimpleMetrics name="post_metrics" metrics="sasa,total_energy,RMSD" prefix="r_"/>
+        	<RunSimpleMetrics name="motif_RMSD" metrics="RMSD_motif" prefix="pre_"/>
+        	<RunSimpleMetrics name="post_metrics2" metrics="sasa,total_energy,sequence,RMSD" prefix="final_"/>
+        	<RunSimpleMetrics name="motif_RMSD2" metrics="RMSD_motif" prefix="post_"/>
+			<RunSimpleMetrics name="PTM_prediction" metrics="glycosylation_prediction" />
+
+        	# Protein Relax
+        	<FastRelax name="neighborhood_relax" scorefxn="beta" task_operations="restrict">
+        		<MoveMap name="rest" bb="false" chi="false">
+                		<ResidueSelector selector="combined" bb="true" chi="true"/>
+            		</MoveMap>
+        	</FastRelax>
+
+        	<FastRelax name="full_relax" task_operations="ifcl"/>
+        	# Store poses for later filtering
+        	<StoreResidueSubset name="store_if" residue_selector="full_pose" subset_name="store_native"/>
+
+
+			
+			# Model the glycan according to the mover used in the paper
+        	<SimpleGlycosylateMover name="glycosylate" positions="%%start%%" glycosylation="man5" idealize_glycosylation="0" strip_existing="1"/>
+        	<GlycanTreeModeler name="tree_modeler" quench_mode="false" rounds="1" layer_size="1"
+         	   window_size="0" hybrid_protocol="1" shear="1" use_gaussian_sampling="1"
+          	   glycan_sampler_rounds="150"/>
+
+
+			<ParsedProtocol name="glycans" >
+           		<Add mover="pre_metrics"/>
+        		<Add mover="store_if"/>
+       			<Add mover="motif_creator"/>
+        		<Add mover ="neighborhood_relax"/>
+        		<Add mover="post_metrics"/> 
+				<Add mover="motif_RMSD"/>
+				<Add filter="total_score_filter"/>
+				<Add filter="RMSD_filter"/>
+				<Add mover_name="PTM_prediction"/>
+        		<Add mover="glycosylate"/>
+        		<Add mover="tree_modeler"/>
+				<Add mover="full_relax"/>
+				<Add filter="RMSD_filter"/>
+				<Add mover="post_metrics2"/>
+				<Add mover="motif_RMSD2"/>
+        	</ParsedProtocol>
+
+			<ParsedProtocol name="no_glycans" >
+           		<Add mover="pre_metrics"/>
+        		<Add mover="store_if"/>
+       			<Add mover="motif_creator"/>
+        		<Add mover ="neighborhood_relax"/>
+        		<Add mover="post_metrics"/> 
+				<Add mover="motif_RMSD"/>
+				<Add filter="total_score_filter"/>
+				<Add filter="RMSD_filter"/>
+				<Add mover_name="PTM_prediction"/>
+				<Add mover="full_relax"/>
+				<Add filter="RMSD_filter"/>
+				<Add mover="post_metrics2"/>
+				<Add mover="motif_RMSD2"/>
+        	</ParsedProtocol>
+
+	</MOVERS>
+
+	<PROTOCOLS>
+		<Add mover="%%protocol%%" />
+	</PROTOCOLS>
+
+	<OUTPUT scorefxn="beta"/>
+</ROSETTASCRIPTS>
