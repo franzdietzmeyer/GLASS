@@ -1,4 +1,4 @@
-# Glycan Masking of Viral Proteins: Computational Models and Analysis
+# GLASS - Glycan Analysis for Epitope Site Shielding
 
 This repository hosts the computational models, analysis scripts, and data associated with our paper on the glycan masking of viral proteins. Our research aims to understand how the glycan shield on viral surface proteins influences their structure, dynamics, and accessibility to host immune responses. By providing all the necessary code and data, we enable full reproducibility of our findings and encourage further research in this critical area of virology and immunology.
 
@@ -25,14 +25,7 @@ This repository hosts the computational models, analysis scripts, and data assoc
 
 To set up your environment and run the code, we recommend using **Conda** for dependency management.
 
-1.  **Clone the repository:**
-
-    ```bash
-    git clone https://github.com/schoederlab/glycanmasking.git
-    cd workdir
-    ```
-
-2.  **Create and activate the Conda environment:**
+1. **Create and activate the Conda environment:**
 
     ```bash
     conda env create -f glycanmasking.yml
@@ -40,35 +33,77 @@ To set up your environment and run the code, we recommend using **Conda** for de
     ```
 
     This will install all necessary Python packages and dependencies specified in `glycanmasking.yml`.
+    
+2.  **For lokal run only!: Install the Reosetta Software Suite Docker Image:**
+    Find more information about Rosetta here: https://github.com/RosettaCommons/rosetta
+    The usage of Rosetta is free for non-profit academic usecases. You can find more information about licensing on their Website: https://docs.rosettacommons.org/docs/latest/getting_started/Getting-Started
+
+    This script uses the Roseta Docker Image to keep the installation easy.
+
+    First of all you have to install docker
+
+    ```bash
+    conda install docker
+    ```
+
+    Next you have to pull the right Rosetta Image. This scripts uses the Machine Learning compiled Version, so lets install that:<
+    https://hub.docker.com/r/rosettacommons/rosetta
+
+    ```bash
+    docker pull rosettacommons/rosetta:ml
+    ```
+
+3.  **Clone the repository:**
+
+    ```bash
+    git clone https://github.com/schoederlab/glycanmasking.git
+    cd workdir
+    ```
 
 ---
 
-## Usage Guide: Reproducing Paper Results
+## Usage
 
-This section provides a step-by-step guide to reproduce the key results and figures presented in our paper.
+### 1. Prepare Input Files
+Place the `.pdb` file you want to work with in the `input_files` folder.
 
-### Input Data
+### 2. Configure Settings
+Open the `config.ini` configuration file and edit the following variables:
+```ini
+# PDB file name (without .pdb extension)
+pdb_name = your_protein_name
 
+# Range of amino acid positions to process
+# Format: comma-separated ranges (e.g., 1-4, 96-103, 105-150 or all)
+position_ranges = 7-13
 
-### Running the Models
+# Enhanced mode flag: set to true for enhanced FNxT motif or false for normal NxT motif
+enhanced_mode = true
 
-The `models/` directory contains the scripts and configurations used to generate the computational models. Depending on the complexity of the modeling (e.g., AlphaFold, molecular dynamics simulations), these steps might be computationally intensive.
+# Glycan model flag: select if glycans should be modeled or not (no_glycans, glycans)
+glycan_model = glycans
 
-1.  **Generate/Refine Models:**
-    Execute the primary modeling script(s). For example, if using AlphaFold or a custom simulation:
+# Set the name of the Rosetta Docker container and Rosetta version you installed
+rosetta_docker_cont = rosettacommons/rosetta:ml
 
-    ```bash
-    rosetta_scripts etc
-    ```
+# Set the RMSD filter value
+# Any design with an RMSD greater than this value will be discarded
+# A lower value is more stringent
+RMSD_filter = 3
 
-    ```bash
-    rosetta_scripts etc
-    ```
+# Set the number of structures to generate
+# Usually 50 is a good number to get some diversity
+nstruct = 15
+```
 
+### 3. Run the Pipeline
+Navigate to the project directory in your terminal and execute the startup script:
+```bash
+./start.sh
+```
 
-
-    This step will populate `data/scores/model_scores.csv` and potentially other files in `data/processed/`.
-
+## Retrieve Results
+An `output` folder will be generated containing your processed structures.
 ### Analyzing Results and Generating Plots
 
 The `analysis/` directory contains the scripts and Jupyter notebooks used to perform the data analysis and generate all the figures presented in the paper.
@@ -102,7 +137,27 @@ Upon successful execution of the steps above, the following key outputs will be 
 
 ## License
 
-This project is licensed under XXX
+MIT License
+
+Copyright (c) [2026] [Franz Dietzmeyer & Dieter S. Hoffmann]
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ---
 
