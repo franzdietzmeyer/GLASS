@@ -1,8 +1,9 @@
 # GLASS - Glycan Analysis for Epitope Site Shielding
+![alt text](https://github.com/schoederlab/GLASS/blob/main/glass_logo_v2.jpg "GLASS - Glycan Analysis for Epitope Site Shielding")
+
 
 This repository hosts the computational models, analysis scripts, and data associated with our paper on the glycan masking of viral proteins. Our research aims to understand how the glycan shield on viral surface proteins influences their structure, dynamics, and accessibility to host immune responses. By providing all the necessary code and data, we enable full reproducibility of our findings and encourage further research in this critical area of virology and immunology.
 
-![alt text](https://github.com/schoederlab/GLASS/blob/main/glass_logo_v2.jpg "Logo Title Text 1")
 
 
 ---
