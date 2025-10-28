@@ -1,0 +1,411 @@
+# GLASS - Glycan Analysis for Epitope Site Shielding
+# .gitignore file to exclude unnecessary files from version control
+
+# =============================================================================
+# Python-specific files
+# =============================================================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+.ipynb
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# PEP 582
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# =============================================================================
+# Rosetta-specific files
+# =============================================================================
+
+# Rosetta output files
+*.pdb
+*.sc
+*.log
+*.in_progress
+*.fasc
+*.silent
+*.out
+*.err
+
+# Rosetta temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Rosetta score files
+*_score.sc
+*_scores.sc
+Full_run.sc
+
+# Rosetta structure files
+*.pdb
+
+
+# =============================================================================
+# Analysis output files
+# =============================================================================
+
+# Analysis results directories
+*_out_*/
+analysis_results/
+plots_*/
+results/
+
+# Analysis plots
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.pdf
+*.eps
+*.tiff
+*.bmp
+
+# Analysis data files
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.json
+*.xml
+*.yaml
+*.yml
+
+# =============================================================================
+# System and IDE files
+# =============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.tmp
+*.temp
+*.bak
+*.backup
+*.swp
+*.swo
+*~
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# =============================================================================
+# IDE and Editor files
+# =============================================================================
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+.netrwhist
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# =============================================================================
+# Docker and Container files
+# =============================================================================
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Singularity/Apptainer
+*.sif
+*.img
+*.sqsh
+
+# =============================================================================
+# Conda and Environment files
+# =============================================================================
+
+# Conda
+.conda/
+conda-meta/
+*.conda
+
+# =============================================================================
+# Log files
+# =============================================================================
+
+# General log files
+*.log
+logs/
+log/
+
+# Application-specific logs
+*.out
+*.err
+*.debug
+
+# =============================================================================
+# Temporary and cache files
+# =============================================================================
+
+# Temporary files
+*.tmp
+*.temp
+*.cache
+*.pid
+*.seed
+*.pid.lock
+
+# Cache directories
+.cache/
+cache/
+tmp/
+temp/
+
+# =============================================================================
+# Project-specific exclusions
+# =============================================================================
+
+# Local run directories (keep structure but exclude content)
+local_run/*_out_*/
+local_run/input_files/*.pdb
+local_run/helper_scripts/__pycache__/
+local_run/helper_scripts/*.pyc
+local_run/helper_scripts/plots/
+
+# Keep important directories but exclude their contents
+!local_run/input_files/
+!local_run/helper_scripts/
+!local_run/input_files/.gitkeep
+!local_run/helper_scripts/.gitkeep
+
+# Configuration files that might contain sensitive information
+config_local.ini
+config_private.ini
+secrets.ini
+
+# Large data files
+*.h5
+*.hdf5
+*.nc
+*.netcdf
+*.zarr
+
+# =============================================================================
+# Backup and version files
+# =============================================================================
+
+# Backup files
+*.bak
+*.backup
+*.old
+*.orig
+*.rej
+
+# Version control
+.svn/
+.hg/
+.bzr/
+
+# =============================================================================
+# Scientific computing
+# =============================================================================
+
+# MATLAB
+*.asv
+*.m~
+
+# R
+.Rhistory
+.RData
+.Ruserdata
+
+# Julia
+*.jl.cov
+*.jl.*.cov
+*.jl.mem
+
+# =============================================================================
+# Documentation build files
+# =============================================================================
+
+# Sphinx
+docs/_build/
+docs/build/
+
+# MkDocs
+site/
+
+# Jupyter Book
+_build/
+
+# =============================================================================
+# End of .gitignore
+# =============================================================================

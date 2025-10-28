@@ -34,7 +34,7 @@ spinner() {
   echo -ne "\r\033[2K" 
   
   # Check the exit status of the waited process
-  wait $pid
+  wait $pid 
   local exit_status=$?
 
   if [ $exit_status -eq 0 ]; then
@@ -63,9 +63,9 @@ if [ -z "$nstruct" ]; then
 fi
 
 # Extract RMSD filter value from config.ini
-rmsd_filter=$(grep "^RSMD_filter" "$CONFIG_FILE" | cut -d'=' -f2 | tr -d ' ')
+rmsd_filter=$(grep "^RMSD_filter" "$CONFIG_FILE" | cut -d'=' -f2 | tr -d ' ')
 if [ -z "$rmsd_filter" ]; then
-    echo "Error: RSMD_filter value not found in config.ini!" >&2
+    echo "Error: RMSD_filter value not found in config.ini!" >&2
     exit 1
 fi
 
@@ -74,14 +74,25 @@ base_name="${base_name%.pdb}"
 base_name="${base_name%.PDB}"
 output="${base_name}_out_$4"
 mkdir -p "$output"
-LOG_FILE=$output/"${base_name}_run_$4".log
 
+# Handle multiple positions (comma-separated) for grouped runs
+positions="$2"
 
-echo "Starting processing for $base_name..."
+if [[ "$positions" =~ , ]]; then
+    # Multiple positions - create a descriptive suffix
+    suffix=$(echo "$positions" | tr ',' '_')
+    LOG_FILE=$output/"${base_name}_run_${suffix}_$4".log
+    echo "Starting processing for $base_name with grouped positions: $positions..."
+else
+    # Single position - use original naming
+    suffix="$positions"
+    LOG_FILE=$output/"${base_name}_run_$4".log
+    echo "Starting processing for $base_name at position: $positions..."
+fi
 
 # 1. ROSETTA_SCRIPTS STEP (Sequon Integration)
 # ----------------------------------------------------------------------
-STEP1_MSG="Processing Sequon integration for set positions"
+STEP1_MSG="Processing Sequon integration for positions: $positions"
 
 #Mount the current directory (-v "$(pwd)":/workspace)
 #Set the working directory to the workspace (-w /workspace)
@@ -92,8 +103,8 @@ STEP1_MSG="Processing Sequon integration for set positions"
 docker run -v "$(pwd)":/workspace -w /workspace $5 rosetta_scripts \
   -s "$1" \
   -parser:protocol "Glycan_Masking.xml" \
-  -parser:script_vars start="$2" enhanced="$3" protocol="$4" rmsd_cutoff="$rmsd_filter" \
-  -out:suffix _"$2" \
+  -parser:script_vars start="$positions" enhanced="$3" protocol="$4" rmsd_cutoff="$rmsd_filter" \
+  -out:suffix _"$suffix" \
   -scorefile Full_run.sc  \
   -out:path:all "$output" \
   -nstruct $nstruct \
@@ -118,37 +129,6 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# 2. RELAX STEP (Native PDB Relaxation)
-# ----------------------------------------------------------------------
-STEP2_MSG="Processing native input PDB relaxation"
-  
-
-docker run -v "$(pwd)":/workspace -w /workspace $5 relax \
-  -s "$1" \
-  -out:suffix _"WT" \
-  -scorefile WT_relax.sc  \
-  -out:path:all "$output" \
-  -nstruct $nstruct \
-  -in:file:native "$1" \
-  -multiple_processes_writing_to_one_directory \
-  -pdb_comments \
-  -ignore_unrecognized_res \
-  -ignore_zero_occupancy false \
-  -include_sugars \
-  -beta \
-  -ex1 \
-  -ex2 \
-  -use_input_sc \
-  >> "$LOG_FILE" 2>&1 & 
-
-PID_2=$!
-
-# Run the spinner and check for success
-spinner $PID_2 "$STEP2_MSG"
-if [ $? -ne 0 ]; then
-    echo "Relax step failed. Check log file: $LOG_FILE" >&2
-    exit 1
-fi
 
 ## 5. FINAL MESSAGE
 ## ----------------------------------------------------------------------
