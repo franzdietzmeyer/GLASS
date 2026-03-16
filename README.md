@@ -39,10 +39,9 @@ Use this if you run the full pipeline (Rosetta glycan masking via Docker) and/or
 1. **Create and activate the virtual environment:**
 
     ```bash
-    cd local_run
-    python3 -m venv .venv_pyrosetta
+    uv venv --python 3.12 .venv_pyrosetta
     source .venv_pyrosetta/bin/activate   # Linux/macOS; on Windows: .venv_pyrosetta\Scripts\activate
-    pip install -r requirements-pyrosetta.txt
+    uv pip install -r requirements-pyrosetta.txt
     ```
 
 2. **Install PyRosetta** (required for full GLASS pipeline):
@@ -50,7 +49,7 @@ Use this if you run the full pipeline (Rosetta glycan masking via Docker) and/or
     ```bash
     # DEBUG: This uses the official PyRosetta wheel index.
     # See docs at: https://graylab.jhu.edu/PyRosetta.documentation/pyrosetta.html
-    pip install pyrosetta --find-links https://west.rosettacommons.org/pyrosetta/quarterly/release
+    uv pip install pyrosetta --find-links https://west.rosettacommons.org/pyrosetta/quarterly/release
     ```
 
     If this command fails (e.g. due to missing credentials or network issues),
@@ -75,10 +74,9 @@ Use this for analysis-only workflows (e.g. you already have score files and only
 1. **Create and activate the virtual environment:**
 
     ```bash
-    cd local_run
-    python3 -m venv .venv_biotite
+    uv venv --python 3.12 .venv_biotite
     source .venv_biotite/bin/activate   # Linux/macOS; on Windows: .venv_biotite\Scripts\activate
-    pip install -r requirements-biotite.txt
+    uv rpip install -r requirements-biotite.txt
     ```
 
 2. **pytest** is already included in `requirements-biotite.txt`. Run tests with:
