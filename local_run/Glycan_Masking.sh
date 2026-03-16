@@ -84,6 +84,11 @@ base_name="${base_name%.PDB}"
 output="${base_name}_out_$4"
 mkdir -p "$output"
 
+# Optional batching parameters (used only when called from batched glycans Snakefile)
+batch_id="${6:-}"
+batch_size="${7:-}"
+total_nstruct="${8:-$nstruct}"
+
 # Handle multiple positions (comma-separated) for grouped runs
 positions="$2"
 
@@ -103,6 +108,31 @@ fi
 # ----------------------------------------------------------------------
 STEP1_MSG="Processing Sequon integration for positions: $positions"
 
+# Determine how many structures to run in this invocation.
+if [ -n "$batch_id" ] && [ -n "$batch_size" ]; then
+  # Batched mode: derive batch-specific nstruct.
+  if ! [[ "$batch_id" =~ ^[0-9]+$ && "$batch_size" =~ ^[0-9]+$ ]]; then
+      echo "Error: Invalid batch_id ('$batch_id') or batch_size ('$batch_size')." >&2
+      exit 1
+  fi
+  start_index=$(( (batch_id - 1) * batch_size ))
+  remaining=$(( total_nstruct - start_index ))
+  if [ "$remaining" -le 0 ]; then
+      echo "Warning: Batch $batch_id has no remaining structures to run (remaining=$remaining); skipping." >&2
+      exit 0
+  fi
+  batch_nstruct=$batch_size
+  if [ "$remaining" -lt "$batch_size" ]; then
+      batch_nstruct=$remaining
+  fi
+  effective_nstruct="$batch_nstruct"
+  scorefile_name="Full_run_batch${batch_id}.sc"
+else
+  # Non-batched mode: run all structures and use the legacy scorefile name.
+  effective_nstruct="$nstruct"
+  scorefile_name="Full_run.sc"
+fi
+
 # Mount the current directory (-B / -v) and run Rosetta either via Docker
 # or via Apptainer/Singularity, depending on container_backend in config.ini.
 
@@ -116,14 +146,14 @@ case "$container_backend" in
         echo "Error: container_backend=apptainer but rosetta_apptainer_image is not set in config.ini and no image was passed." >&2
         exit 1
     fi
-    apptainer run -B "$(pwd)":/workspace -W /workspace "$image" rosetta_scripts \
+  apptainer run -B "$(pwd)":/workspace -W /workspace "$image" rosetta_scripts \
       -s "$1" \
       -parser:protocol "Glycan_Masking.xml" \
       -parser:script_vars start="$positions" enhanced="$3" protocol="$4" rmsd_cutoff="$rmsd_filter" \
       -out:suffix _"$suffix" \
-      -scorefile Full_run.sc  \
+      -scorefile "$scorefile_name"  \
       -out:path:all "$output" \
-      -nstruct $nstruct \
+      -nstruct "$effective_nstruct" \
       -in:file:native "$1" \
       -multiple_processes_writing_to_one_directory \
       -pdb_comments \
@@ -143,9 +173,9 @@ case "$container_backend" in
       -parser:protocol "Glycan_Masking.xml" \
       -parser:script_vars start="$positions" enhanced="$3" protocol="$4" rmsd_cutoff="$rmsd_filter" \
       -out:suffix _"$suffix" \
-      -scorefile Full_run.sc  \
+      -scorefile "$scorefile_name"  \
       -out:path:all "$output" \
-      -nstruct $nstruct \
+      -nstruct "$effective_nstruct" \
       -in:file:native "$1" \
       -multiple_processes_writing_to_one_directory \
       -pdb_comments \

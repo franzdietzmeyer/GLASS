@@ -107,7 +107,29 @@ case "$MODE" in
         ;;
 esac
 
-CMD=("$SNAKEMAKE_BIN" --profile "$PROFILE")
+# Decide which Snakefile to use based on glycan_model in config.ini.
+CONFIG_FILE="config.ini"
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    echo "Error: config.ini not found in local_run." >&2
+    exit 1
+fi
+glycan_model=$(grep "^glycan_model" "$CONFIG_FILE" | cut -d'=' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+SNAKEFILE_ARG=("")
+case "$glycan_model" in
+    glycans)
+        SNAKEFILE_ARG=("--snakefile" "Snakefile_glycans")
+        ;;
+    no_glycans|"")
+        SNAKEFILE_ARG=("--snakefile" "Snakefile_no_glycans")
+        ;;
+    *)
+        echo "Error: Unknown glycan_model '$glycan_model' in config.ini. Expected 'no_glycans' or 'glycans'." >&2
+        exit 1
+        ;;
+esac
+
+CMD=("$SNAKEMAKE_BIN" "${SNAKEFILE_ARG[@]}" --profile "$PROFILE")
 
 if [[ "${GLASS_SNAKEMAKE_DEBUG:-0}" == "1" ]]; then
     echo "[DEBUG] Running Snakemake command: ${CMD[*]} $*"

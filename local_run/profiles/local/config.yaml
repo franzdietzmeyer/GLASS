@@ -15,6 +15,7 @@ cores: 5
 latency-wait: 60
 restart-times: 1
 printshellcmds: false
+keep-incomplete: true
 # Continue with remaining jobs even if one job fails (recommended for multi-position runs).
 keep-going: true
 # Schedule next jobs as soon as cores free up (default is greedy; set explicitly for clarity).

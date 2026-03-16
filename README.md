@@ -115,8 +115,17 @@ chain_id = A
 # Enhanced mode flag
 enhanced_mode = false
 
-# Glycan model flag: select of glycans should be modeled or not (no_glycans, glycans)
+# Glycan model flag: select if glycans should be modeled or not (no_glycans, glycans)
 glycan_model = no_glycans
+
+# Batch size for Rosetta glycan masking when glycan_model = glycans.
+# When glycans are modeled, each position can be split into multiple
+# smaller Rosetta jobs (batches) to improve robustness on HPC systems.
+# Set this to the number of structures per batch; the pipeline will
+# automatically derive the number of batches from nstruct.
+# If unset or < 1, the pipeline falls back to a single batch per position
+# (equivalent to non-batched behavior).
+glycan_batch_size = 10
 
 # Container backend for Rosetta jobs: choose "docker" (default) or "apptainer"
 container_backend = docker
@@ -157,15 +166,19 @@ cd local_run
 #### Option B: Snakemake workflow (local or Slurm)
 
 The Snakemake-based entrypoint lives in `local_run/run_glass_snakemake.sh`.
-It wraps the existing `start.sh` pipeline so you get reproducible runs,
-restartability, and easy integration with both local multi-core systems
-and Slurm-based HPC clusters.
+It runs the GLASS workflow via Snakemake with two internal variants:
 
-The workflow runs in three steps:
+- `Snakefile_no_glycans` when `glycan_model = no_glycans` (no batching).
+- `Snakefile_glycans` when `glycan_model = glycans` (batched Rosetta jobs,
+  controlled by `glycan_batch_size`).
+
+The workflow runs in three main steps:
 
 1. **Identify positions from config.ini (and PDB)** — Determines which positions to run.
-2. **Run glycan masking in parallel (local or HPC)** — One Snakemake job per position.
-3. **Run the analysis once** — After all masking jobs have finished.
+2. **Run glycan masking in parallel (local or HPC)** — One or more Rosetta jobs per position
+   (multiple batches when `glycan_model = glycans`).
+3. **Run the analysis once** — After all masking jobs have finished and their scorefiles
+   have been merged into a single `Full_run.sc`.
 
 From the `local_run` directory:
 
@@ -175,7 +188,7 @@ cd local_run
 # Local run using the built-in local profile
 ./run_glass_snakemake.sh local
 
-# Slurm run using the Slurm profile template
+# Slurm run using the Slurm profile
 ./run_glass_snakemake.sh slurm
 
 # (Optional) Dry-run to see the planned steps without executing them
@@ -184,7 +197,7 @@ cd local_run
 
 The Snakemake wrapper reads experiment settings from:
 
-- `config.ini` (existing INI used by `start.sh` and the Snakemake wrapper)
+- `config.ini` (INI used by the workflow to determine PDB, glycan_model, batching, etc.)
 
 To enable DEBUG-style verbosity at the workflow level, set:
 
@@ -195,10 +208,6 @@ export GLASS_SNAKEMAKE_DEBUG=1
 
 This will print the full Snakemake command being executed. You can
 disable it again by unsetting the variable or closing the shell.
-
-For Slurm, adjust `profiles/slurm/cluster.yaml` to match your cluster
-defaults (partition, walltime, memory, etc.). The initial template
-contains conservative placeholder values.
 
 ## Retrieve Results
 An `output` folder will be generated containing your processed structures.

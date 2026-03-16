@@ -13,12 +13,13 @@ executor: slurm
 
 # General scheduling / robustness settings.
 jobs: 100
-latency-wait: 120
+latency-wait: 240
 restart-times: 1
 max-jobs-per-second: 5
 max-status-checks-per-second: 5
 printshellcmds: false
 keep-going: true
+keep-incomplete: true
 
 # Default resources interpreted by the Slurm executor plugin.
 # These can be overridden per-rule via "resources" and "threads".
