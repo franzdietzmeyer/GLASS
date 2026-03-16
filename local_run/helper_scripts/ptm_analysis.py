@@ -418,7 +418,7 @@ class PTMAnalyzer:
         ax.set_xticks(ticks=x_pos)
         ax.set_xticklabels(
             position_labels,
-            rotation=45,
+            rotation=0,
             ha='center',             # center whole label under the tick
             ma='center',             # center the two text rows relative to each other
             rotation_mode='anchor',  # rotate around anchor so center stays under tick
@@ -426,8 +426,10 @@ class PTMAnalyzer:
             fontweight='bold',
         )
 
-        # Y-tick labels: standard size, no rotation
+        # Y-tick labels: standard size, bold to match x-axis
         ax.tick_params(axis='y', labelsize=plotter.FONT_SIZE_TICKS)
+        for label in ax.get_yticklabels():
+            label.set_fontweight('bold')
 
         plotter.apply_standard_grid(ax, axis='y')
 

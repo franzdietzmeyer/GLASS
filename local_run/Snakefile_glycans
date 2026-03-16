@@ -100,6 +100,9 @@ rule glycan_masking_batch:
         batch_size = GLYCAN_BATCH_SIZE,
         total_nstruct = NSTRUCT,
     threads: 1
+    resources:
+        time = 2880,
+        mem_mb = 16000,
     shell:
         "bash scripts/run_glycan_masking.sh "
         "{params.position_id} {input.pdb} {input.config} $(dirname {output.scorefile}) "
@@ -123,25 +126,18 @@ rule merge_position_batches:
 
 def _merged_score_input(wildcards):
     """
-    Return only those per-position score files that actually exist.
+    Return the per-position score files Snakemake should create.
 
-    This allows the workflow to continue and still produce a merged
-    Full_run.sc and plots even when some positions failed completely,
-    e.g. due to strict Rosetta filters or timeouts.
+    DEBUG: We intentionally do not check os.path.exists here because
+    this function is evaluated before upstream rules run. It yields
+    the expected Full_run.sc paths for all positions so that
+    glycan_masking_batch and merge_position_batches are scheduled.
     """
     ids = _position_ids()
-    candidates = [
+    return [
         os.path.join(RESULT_DIR, "out_by_position", pid, "Full_run.sc")
         for pid in ids
     ]
-    existing = [p for p in candidates if os.path.exists(p)]
-
-    if not existing:
-        raise WorkflowError(
-            "No per-position score files (Full_run.sc) were found in glycans mode. "
-            "All positions appear to have failed; nothing to merge."
-        )
-    return existing
 
 
 rule merge_scores:
