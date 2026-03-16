@@ -29,4 +29,4 @@ default-resources:
   # - slurm_account="your_account"  # uncomment and set if your site uses accounts
 
 # Job naming and log locations (relative to the working dir).
-jobname: "{workflow.name}.{rule}.{wildcards}"
+jobname: "{workflow.name}.{rule}.{jobid}.{wildcards}"
