@@ -1,0 +1,22 @@
+# Slurm Snakemake profile for GLASS
+# =================================
+#
+# This profile is a TEMPLATE for running GLASS on an HPC cluster
+# managed by Slurm. You should adjust the values in `cluster.yaml`
+# (partition, time, memory, etc.) to match your site.
+#
+# Snakemake will construct the sbatch command from this profile and
+# the per-rule resources (threads, mem_mb, time_min) when present.
+#
+
+cluster: "sbatch --job-name={cluster.name} --partition={cluster.partition} --time={cluster.time} --mem={cluster.mem} --cpus-per-task={threads} --output={cluster.logdir}/slurm-%j.out"
+cluster-config: "profiles/slurm/cluster.yaml"
+
+jobs: 100
+latency-wait: 120
+restart-times: 1
+max-jobs-per-second: 5
+max-status-checks-per-second: 5
+printshellcmds: false
+keep-going: true
+

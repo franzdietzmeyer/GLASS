@@ -1,0 +1,19 @@
+# Cluster configuration for the GLASS Slurm profile
+# =================================================
+#
+# This file defines default Slurm resources for Snakemake rules
+# when using the `profiles/slurm` profile.
+#
+# IMPORTANT:
+# - Please adjust `partition`, `time`, and `mem` to match your HPC site.
+# - You can override these per-rule in the Snakefile by adding a
+#   `resources:` section and matching keys here.
+#
+
+__default__:
+  name: "glass"
+  partition: "paul"
+  time: "02:00:00"
+  mem: "8G"
+  logdir: "logs"
+

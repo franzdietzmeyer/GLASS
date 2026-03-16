@@ -1,0 +1,23 @@
+# Local Snakemake profile for GLASS
+# =================================
+#
+# This profile is intended for workstation / single-node runs.
+# It does NOT submit jobs to a scheduler; Snakemake will just
+# use the local cores you allow via `cores` (or -j/--cores on CLI).
+#
+# When you have fewer cores than position jobs (e.g. 5 cores, 9 positions),
+# Snakemake runs jobs in waves: it starts up to `cores` jobs, and when
+# some finish it starts the next ones. You must let the process run until
+# completion—do not interrupt (Ctrl+C)—so that all waves run and all
+# positions are processed.
+#
+cores: 5
+latency-wait: 60
+restart-times: 1
+printshellcmds: false
+# Continue with remaining jobs even if one job fails (recommended for multi-position runs).
+keep-going: true
+# Schedule next jobs as soon as cores free up (default is greedy; set explicitly for clarity).
+scheduler: greedy
+
+
