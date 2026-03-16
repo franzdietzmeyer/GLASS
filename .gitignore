@@ -23,6 +23,23 @@
 !local_run/tests/
 !local_run/tests/**
 
+# Core Snakemake pipeline entrypoints and configs in local_run
+!local_run/config.ini
+!local_run/run_glass_snakemake.sh
+!local_run/run_one_position.sh
+!local_run/Glycan_Masking.sh
+!local_run/Glycan_Masking.xml
+!local_run/Snakefile
+!local_run/requirements-biotite.txt
+!local_run/requirements-pyrosetta.txt
+
+# Snakemake helper scripts and profiles
+!local_run/scripts/
+!local_run/scripts/**
+!local_run/profiles/
+!local_run/profiles/**
+
+!glass_logo_v2.jpg
 # =============================================================================
 # Python-specific files
 # =============================================================================
