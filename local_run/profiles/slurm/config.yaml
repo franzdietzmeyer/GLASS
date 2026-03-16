@@ -24,7 +24,7 @@ keep-going: true
 # These can be overridden per-rule via "resources" and "threads".
 default-resources:
   - mem_mb=16000          # default memory in MB
-  - runtime=0:30:00           # default walltime hh:mm:ss
+  - runtime=10           # default walltime in minutes
   - partition="paul"  # change to your site's default partition
   # - slurm_account="your_account"  # uncomment and set if your site uses accounts
 
