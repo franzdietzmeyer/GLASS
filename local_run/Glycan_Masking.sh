@@ -69,6 +69,15 @@ if [ -z "$rmsd_filter" ]; then
     exit 1
 fi
 
+# Container backend selection (docker or apptainer); default to docker
+container_backend=$(grep "^container_backend" "$CONFIG_FILE" | cut -d'=' -f2 | tr -d '[:space:]')
+if [ -z "$container_backend" ]; then
+    container_backend="docker"
+fi
+
+# Optional Apptainer image from config (used when container_backend = apptainer)
+rosetta_apptainer_image=$(grep "^rosetta_apptainer_image" "$CONFIG_FILE" | cut -d'=' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
 base_name="$(basename "$1")"
 base_name="${base_name%.pdb}"
 base_name="${base_name%.PDB}"
@@ -94,31 +103,62 @@ fi
 # ----------------------------------------------------------------------
 STEP1_MSG="Processing Sequon integration for positions: $positions"
 
-#Mount the current directory (-v "$(pwd)":/workspace)
-#Set the working directory to the workspace (-w /workspace)
-#use the rosetta_docker_cont container ($5)
-#run the rosetta_scripts command
+# Mount the current directory (-B / -v) and run Rosetta either via Docker
+# or via Apptainer/Singularity, depending on container_backend in config.ini.
 
+container_spec="$5"  # For backward compatibility: image name/path passed by caller
 
-docker run -v "$(pwd)":/workspace -w /workspace $5 rosetta_scripts \
-  -s "$1" \
-  -parser:protocol "Glycan_Masking.xml" \
-  -parser:script_vars start="$positions" enhanced="$3" protocol="$4" rmsd_cutoff="$rmsd_filter" \
-  -out:suffix _"$suffix" \
-  -scorefile Full_run.sc  \
-  -out:path:all "$output" \
-  -nstruct $nstruct \
-  -in:file:native "$1" \
-  -multiple_processes_writing_to_one_directory \
-  -pdb_comments \
-  -ignore_unrecognized_res \
-  -ignore_zero_occupancy false \
-  -include_sugars \
-  -beta \
-  -ex1 \
-  -ex2 \
-  -use_input_sc \
-  >> "$LOG_FILE" 2>&1 & 
+case "$container_backend" in
+  apptainer)
+    # Prefer explicit image from config; fall back to the passed-in spec if needed.
+    image="${rosetta_apptainer_image:-$container_spec}"
+    if [ -z "$image" ]; then
+        echo "Error: container_backend=apptainer but rosetta_apptainer_image is not set in config.ini and no image was passed." >&2
+        exit 1
+    fi
+    apptainer run -B "$(pwd)":/workspace -W /workspace "$image" rosetta_scripts \
+      -s "$1" \
+      -parser:protocol "Glycan_Masking.xml" \
+      -parser:script_vars start="$positions" enhanced="$3" protocol="$4" rmsd_cutoff="$rmsd_filter" \
+      -out:suffix _"$suffix" \
+      -scorefile Full_run.sc  \
+      -out:path:all "$output" \
+      -nstruct $nstruct \
+      -in:file:native "$1" \
+      -multiple_processes_writing_to_one_directory \
+      -pdb_comments \
+      -ignore_unrecognized_res \
+      -ignore_zero_occupancy false \
+      -include_sugars \
+      -beta \
+      -ex1 \
+      -ex2 \
+      -use_input_sc \
+      >> "$LOG_FILE" 2>&1 &
+    ;;
+  *)
+    # Default: Docker backend
+    docker run -v "$(pwd)":/workspace -w /workspace "$container_spec" rosetta_scripts \
+      -s "$1" \
+      -parser:protocol "Glycan_Masking.xml" \
+      -parser:script_vars start="$positions" enhanced="$3" protocol="$4" rmsd_cutoff="$rmsd_filter" \
+      -out:suffix _"$suffix" \
+      -scorefile Full_run.sc  \
+      -out:path:all "$output" \
+      -nstruct $nstruct \
+      -in:file:native "$1" \
+      -multiple_processes_writing_to_one_directory \
+      -pdb_comments \
+      -ignore_unrecognized_res \
+      -ignore_zero_occupancy false \
+      -include_sugars \
+      -beta \
+      -ex1 \
+      -ex2 \
+      -use_input_sc \
+      >> "$LOG_FILE" 2>&1 &
+    ;;
+esac
 
 PID_1=$!
 

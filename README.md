@@ -118,8 +118,15 @@ enhanced_mode = false
 # Glycan model flag: select of glycans should be modeled or not (no_glycans, glycans)
 glycan_model = no_glycans
 
-#set the name of the rosetta docker container and rosetta version you installed
+# Container backend for Rosetta jobs: choose "docker" (default) or "apptainer"
+container_backend = docker
+
+# Name of the Rosetta Docker image (used when container_backend = docker)
 rosetta_docker_cont = rosettacommons/rosetta:ml
+
+# Path to the Rosetta Apptainer/Singularity image (used when container_backend = apptainer)
+# Example: /path/to/rosetta_ml.sif
+rosetta_apptainer_image =
 
 #set the RSMD filter value, any design with an RSMD greater than this value will be discarded
 #a lower value is more stringent
