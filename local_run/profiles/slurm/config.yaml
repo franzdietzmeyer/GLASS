@@ -1,3 +1,37 @@
+## Slurm Snakemake 9.x profile for GLASS
+## =====================================
+##
+## This profile is for running GLASS on an HPC cluster managed by Slurm
+## using the new executor plugin interface introduced in Snakemake 9.x.
+## See: https://snakemake.readthedocs.io/en/stable/
+##
+## Adjust default resources below (partition, mem_mb, runtime, account, etc.)
+## to match your local cluster configuration.
+
+# Use the built-in Slurm executor plugin (Snakemake >= 9).
+executor: slurm
+
+# General scheduling / robustness settings.
+jobs: 100
+latency-wait: 120
+restart-times: 1
+max-jobs-per-second: 5
+max-status-checks-per-second: 5
+printshellcmds: false
+keep-going: true
+
+# Default resources interpreted by the Slurm executor plugin.
+# These can be overridden per-rule via "resources" and "threads".
+default-resources:
+  - mem_mb=16000          # default memory in MB
+  - runtime=120           # default walltime in minutes
+  - partition="paul"  # change to your site's default partition
+  # - slurm_account="your_account"  # uncomment and set if your site uses accounts
+
+# Job naming and log locations (relative to the working dir).
+jobname: "{workflow.name}.{rule}.{wildcards}"
+cluster-log: "logs/slurm-%j.out"
+
 # Slurm Snakemake profile for GLASS
 # =================================
 #
