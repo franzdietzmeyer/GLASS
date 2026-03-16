@@ -74,15 +74,19 @@ Examples:
                        help='Path to the score file (required for both modes)')
     parser.add_argument('--pdb-file', '-p',
                        help='Path to the native PDB file (required for both modes)')
+    parser.add_argument('--chain-id',
+                       type=str,
+                       default='A',
+                       help='Chain ID to analyze (used by both modes: for sequon detection in glycan mode, for analysis in PTM mode)')
     
     # Glycan analysis specific arguments
     glycan_group = parser.add_argument_group('Glycan Analysis Options')
     glycan_group.add_argument('--construct', '-c',
                              help='Construct name for plot title (required for glycan mode)')
     glycan_group.add_argument('--motif', 
-                             choices=['NxT', 'FxNxT'], 
+                             choices=['NxT', 'NxS/T', 'FxNxT'], 
                              default='NxT',
-                             help='Introduced motif type (default: NxT)')
+                             help='Introduced motif type: NxT, NxS/T, or FxNxT (default: NxT)')
     glycan_group.add_argument('--glycan-positions', 
                              type=int, nargs='*', 
                              default=[],
@@ -102,9 +106,6 @@ Examples:
     
     # PTM analysis specific arguments
     ptm_group = parser.add_argument_group('PTM Analysis Options')
-    ptm_group.add_argument('--chain-id',
-                          default='A',
-                          help='Chain ID to analyze (default: A)')
     
     return parser
 
@@ -122,11 +123,14 @@ Required arguments:
   --construct, -c     Construct name for plot title
 
 Optional arguments:
-  --motif             Motif type: NxT or FxNxT (default: NxT)
+  --motif             Motif type: NxT, NxS/T, or FxNxT (default: NxT)
   --glycan-positions  Known glycan positions on wild-type protein
   --percentage-cutoff Percentage cutoff for score filtering (default: 25.0)
   --ptm-cutoff        PTM prediction metric cutoff (default: 0.5)
   --distance-cutoff   Distance cutoff for nearby residue detection (default: 5.0)
+  
+Common optional arguments (available for both modes):
+  --chain-id          Chain ID to analyze (default: A)
 
 Example:
   python main_analysis.py --mode glycan --scorefile results.sc --pdb-file structure.pdb --construct MyProtein
@@ -139,9 +143,6 @@ PTM ANALYSIS MODE HELP
 Required arguments:
   --scorefile, -s     Path to the PTM score file
   --pdb-file, -p      Path to the native PDB file
-
-Optional arguments:
-  --chain-id          Chain ID to analyze (default: A)
 
 Example:
   python main_analysis.py --mode no_glycans --scorefile ptm_scores.sc --pdb-file native.pdb --chain-id A
@@ -225,12 +226,41 @@ def run_glycan_analysis(args):
     
     # Identify wild-type glycans if not provided
     if not args.glycan_positions:
-        glycan_positions = analyzer.identify_wild_type_glycans(args.pdb_file, debug=args.debug)
+        glycan_positions = analyzer.identify_wild_type_glycans(args.pdb_file)
         if glycan_positions:
             print(f"\nIdentified wild-type glycans at positions: {', '.join(map(str, glycan_positions))}")
         else:
-            print("\nNo wild-type glycans found in structure")
-            glycan_positions = []
+            print("\nNo wild-type glycans found in structure using PyRosetta")
+            # Fallback: Check for glycosylation sequons (N^P[ST]) in the input PDB file
+            print(f"Checking for glycosylation sequons (N^P[ST]) in chain {args.chain_id}...")
+            try:
+                from ptm_analysis import PTMAnalyzer
+                ptm_analyzer = PTMAnalyzer(debug=args.debug)
+                sequon_positions, sequence = ptm_analyzer.get_n_glyco_sites(args.pdb_file, args.chain_id)
+                if sequon_positions:
+                    glycan_positions = sequon_positions
+                    print(f"Found {len(sequon_positions)} glycosylation sequon(s) at positions: {', '.join(map(str, sequon_positions))}")
+                    print("Using sequon positions as wild-type glycan positions")
+                else:
+                    print("No glycosylation sequons found in structure")
+                    glycan_positions = []
+            except ValueError as e:
+                # Treat an invalid or missing chain as a hard error and stop gracefully
+                print(f"Error: {e}")
+                print("Aborting glycan analysis because the specified chain could not be processed.")
+                if args.debug:
+                    import traceback
+                    print("[DEBUG] Full traceback for sequon detection error:")
+                    traceback.print_exc()
+                sys.exit(1)
+            except Exception as e:
+                # Any other unexpected error in the fallback is also treated as fatal
+                print(f"Unexpected error during sequon detection fallback: {e}")
+                if args.debug:
+                    import traceback
+                    print("[DEBUG] Full traceback for unexpected sequon detection error:")
+                    traceback.print_exc()
+                sys.exit(1)
     else:
         glycan_positions = args.glycan_positions
     
@@ -299,6 +329,7 @@ def main():
         print(f"Percentage cutoff: {args.percentage_cutoff}")
         print(f"PTM cutoff: {args.ptm_cutoff}")
         print(f"Distance cutoff: {args.distance_cutoff}")
+        print(f"Chain ID: {args.chain_id}")
         
         if not validate_glycan_args(args):
             sys.exit(1)

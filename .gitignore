@@ -2,6 +2,28 @@
 # .gitignore file to exclude unnecessary files from version control
 
 # =============================================================================
+# Opt-in tracking: ignore everything by default
+# =============================================================================
+
+# Ignore all files and directories by default
+*
+
+# Explicitly include core tracked items
+!.gitignore
+!README.md
+!GLASS/
+!GLASS/**
+
+# Keep important local_run structure; contents controlled by rules below
+!local_run/
+!local_run/input_files/
+!local_run/helper_scripts/
+!local_run/input_files/.gitkeep
+!local_run/helper_scripts/.gitkeep
+!local_run/tests/
+!local_run/tests/**
+
+# =============================================================================
 # Python-specific files
 # =============================================================================
 
@@ -106,6 +128,8 @@ celerybeat.pid
 # Environments
 .env
 .venv
+.venv_pyrosetta
+.venv_biotite
 env/
 venv/
 ENV/
@@ -151,13 +175,7 @@ dmypy.json
 *.backup
 
 # Rosetta score files
-*_score.sc
-*_scores.sc
-Full_run.sc
-
-# Rosetta structure files
-*.pdb
-
+*.sc
 
 # =============================================================================
 # Analysis output files

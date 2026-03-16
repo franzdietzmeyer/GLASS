@@ -23,50 +23,68 @@ This repository hosts the computational models, analysis scripts, and data assoc
 
 ## Setup and Installation
 
-To set up your environment and run the code, we recommend using **Conda** for dependency management.
-
-1. **Create and activate the Conda environment:**
+1. **Clone the repository:**
 
     ```bash
-    conda env create -f GLASS.yml
-    conda activate GLASS
+    git clone https://github.com/schoederlab/GLASS.git
+    cd GLASS/local_run
     ```
 
-    This will install all necessary Python packages and dependencies specified in `GLASS.yml`.
-    
-2.  **For lokal run only!: Install the Rosetta Software Suite Docker Image:**
-    Find more information about Rosetta here: https://github.com/RosettaCommons/rosetta
-    The usage of Rosetta is free for non-profit academic usecases. You can find more information about licensing on their Website: https://docs.rosettacommons.org/docs/latest/getting_started/Getting-Started
+2. **Choose one of two Python environments** (with or without PyRosetta):
 
-    This script uses the Roseta Docker Image to keep the installation easy.
+### Option A: Environment **with PyRosetta** (full pipeline)
 
-    First of all you have to install docker
+Use this if you run the full pipeline (Rosetta glycan masking via Docker) and/or use layer keywords like `surface` or `boundary` in `position_ranges` (these require PyRosetta in the analysis helper).
+
+1. **Create and activate the virtual environment:**
 
     ```bash
-    conda install docker
+    cd local_run
+    python3 -m venv .venv_pyrosetta
+    source .venv_pyrosetta/bin/activate   # Linux/macOS; on Windows: .venv_pyrosetta\Scripts\activate
+    pip install -r requirements-pyrosetta.txt
     ```
 
-    Next you have to pull the right Rosetta Image. This scripts uses the Machine Learning compiled Version, so lets install that:<
-    https://hub.docker.com/r/rosettacommons/rosetta
+2. **Install PyRosetta** (required for full GLASS pipeline):
+
+    ```bash
+    # DEBUG: This uses the official PyRosetta wheel index.
+    # See docs at: https://graylab.jhu.edu/PyRosetta.documentation/pyrosetta.html
+    pip install pyrosetta --find-links https://west.rosettacommons.org/pyrosetta/quarterly/release
+    ```
+
+    If this command fails (e.g. due to missing credentials or network issues),
+    please follow the official [PyRosetta installation guide](https://graylab.jhu.edu/PyRosetta.documentation/pyrosetta.html)
+    for your platform and then re-run the GLASS pipeline.
+
+3. **pytest** is included in `requirements-pyrosetta.txt`; run tests with `python -m pytest tests/ -v`.
+
+4. **For local run: install the Rosetta Docker image** (for the actual Rosetta jobs):
+
+    See [Rosetta](https://github.com/RosettaCommons/rosetta). The pipeline uses the Docker image for running Rosetta:
 
     ```bash
     docker pull rosettacommons/rosetta:ml
     ```
-    ** Apptainer or Singularity:**
-    The script can also be run using Apptainer (or Singularity) of Docker is not available.
-    To run the image using Apptainer you need to pull it using:
+    With Apptainer/Singularity: `apptainer pull rosetta_ml.sif docker://rosettacommons/rosetta:ml`
+
+### Option B: Environment **without PyRosetta** (Biotite only)
+
+Use this for analysis-only workflows (e.g. you already have score files and only need plotting/PTM analysis). No PyRosetta license required; analysis uses Biotite for structure loading and SASA.
+
+1. **Create and activate the virtual environment:**
 
     ```bash
-    apptainer pull rosetta_ml.sif rosettacommons/rosetta:ml
+    cd local_run
+    python3 -m venv .venv_biotite
+    source .venv_biotite/bin/activate   # Linux/macOS; on Windows: .venv_biotite\Scripts\activate
+    pip install -r requirements-biotite.txt
     ```
 
-
-
-3.  **Clone the repository:**
+2. **pytest** is already included in `requirements-biotite.txt`. Run tests with:
 
     ```bash
-    git clone https://github.com/schoederlab/GLASS.git
-    cd workdir
+    python -m pytest tests/ -v
     ```
 
 ---
@@ -117,10 +135,63 @@ nstruct = 5
 ```
 
 ### 3. Run the Pipeline
-Navigate to the project directory in your terminal and execute the startup script:
+
+You can now run the pipeline either directly via the original bash script
+or via the new Snakemake workflow (recommended for HPC / Slurm use).
+
+#### Option A: Original bash pipeline (unchanged)
+
+Navigate to the `local_run` directory and execute the startup script:
 ```bash
+cd local_run
 ./start.sh
 ```
+
+#### Option B: Snakemake workflow (local or Slurm)
+
+The Snakemake-based entrypoint lives in `local_run/run_glass_snakemake.sh`.
+It wraps the existing `start.sh` pipeline so you get reproducible runs,
+restartability, and easy integration with both local multi-core systems
+and Slurm-based HPC clusters.
+
+The workflow runs in three steps:
+
+1. **Identify positions from config.ini (and PDB)** — Determines which positions to run.
+2. **Run glycan masking in parallel (local or HPC)** — One Snakemake job per position.
+3. **Run the analysis once** — After all masking jobs have finished.
+
+From the `local_run` directory:
+
+```bash
+cd local_run
+
+# Local run using the built-in local profile
+./run_glass_snakemake.sh local
+
+# Slurm run using the Slurm profile template
+./run_glass_snakemake.sh slurm
+
+# (Optional) Dry-run to see the planned steps without executing them
+./run_glass_snakemake.sh local --dry-run
+```
+
+The Snakemake wrapper reads experiment settings from:
+
+- `config.ini` (existing INI used by `start.sh` and the Snakemake wrapper)
+
+To enable DEBUG-style verbosity at the workflow level, set:
+
+```bash
+export GLASS_SNAKEMAKE_DEBUG=1
+./run_glass_snakemake.sh local
+```
+
+This will print the full Snakemake command being executed. You can
+disable it again by unsetting the variable or closing the shell.
+
+For Slurm, adjust `profiles/slurm/cluster.yaml` to match your cluster
+defaults (partition, walltime, memory, etc.). The initial template
+contains conservative placeholder values.
 
 ## Retrieve Results
 An `output` folder will be generated containing your processed structures.

@@ -12,6 +12,7 @@ This directory contains modular analysis scripts for glycan masking and PTM (Pos
 - **`ptm_analysis.py`** - Utilities for analyzing PTM data from Rosetta output files
 - **`data_processing.py`** - Utilities for processing score files and data cleaning
 - **`plotting_utils.py`** - Utilities for creating plots and visualizations
+- **`get_surface_residues.py`** - Surface/boundary layer residue selection (used when `position_ranges` includes layer keywords)
 
 ## Usage
 
@@ -42,7 +43,7 @@ python main_analysis.py --mode no_glycans \
 - matplotlib >= 3.5.0
 - seaborn >= 0.11.0
 - adjustText >= 0.7
-- pyrosetta >= 2022.0
+- biotite (for structure loading, CA distances, SASA; replaces PyRosetta in analysis)
 - biopython >= 1.79
 
 ## Features
@@ -57,11 +58,13 @@ python main_analysis.py --mode no_glycans \
 - **Consensus Scoring**: Grouping and averaging of replicate data
 - **Publication-ready Plots**: High-quality plots with proper formatting
 
-## Migration from Original Scripts
+## Running tests
 
-The original scripts (`analyze_output.py`, `ptm_analysis.py`, `analyze_utils.py`) have been refactored into this modular structure:
+Unit tests live in `local_run/tests/` and use pytest. From `local_run`:
 
-- `analyze_output.py` → `main_analysis.py` (glycan mode)
-- `ptm_analysis.py` → `main_analysis.py` (no_glycans mode) + `ptm_analysis.py` module
-- `analyze_utils.py` → `glycan_analysis.py` + `plotting_utils.py` modules
-- `data_processing.py` → Enhanced `data_processing.py` module
+```bash
+pip install pytest   # if not already installed
+python -m pytest tests/ -v
+```
+
+Or run the quick sanity check from `helper_scripts`: `python test_modules.py` (runs pytest if available, else import/init checks).

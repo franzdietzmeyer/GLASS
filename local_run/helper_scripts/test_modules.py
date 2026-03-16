@@ -1,24 +1,30 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.10"
-# dependencies = [
-#     "adjusttext",
-#     "pyrosetta",
-# ]
-# ///
 """
-Test Script for GLASS Analysis Modules
-======================================
+Test entry point for GLASS Analysis Modules.
+============================================
 
-Simple test script to verify that all modules can be imported correctly
-and basic functionality works.
+Run full unit tests with pytest (recommended):
+    From local_run:  python -m pytest tests/ -v
+    Or:              pytest local_run/tests/ -v
 
-Usage:
+Quick sanity check (imports and init) when run directly:
     python test_modules.py
 """
 
 import sys
 import os
+
+
+def _run_pytest():
+    """Run pytest on the tests/ directory (sibling of helper_scripts)."""
+    import pytest
+    # helper_scripts/test_modules.py -> helper_scripts -> local_run
+    tests_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tests")
+    if not os.path.isdir(tests_dir):
+        print(f"Tests directory not found: {tests_dir}", file=sys.stderr)
+        return False
+    return pytest.main(["-v", tests_dir]) == 0
+
 
 def test_imports():
     """Test that all modules can be imported."""
@@ -135,5 +141,10 @@ def main():
     return all_tests_passed
 
 if __name__ == "__main__":
-    success = main()
+    # If pytest is available, run the full test suite; otherwise run quick sanity check
+    try:
+        import pytest as _pytest  # noqa: F401
+        success = _run_pytest()
+    except ImportError:
+        success = main()
     sys.exit(0 if success else 1)

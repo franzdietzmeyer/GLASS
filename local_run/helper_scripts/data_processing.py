@@ -15,6 +15,102 @@ from typing import List, Tuple, Dict, Optional
 from glycan_analysis import GlycanAnalyzer
 
 
+# ---------------------------------------------------------------------------
+# Shared utility
+# ---------------------------------------------------------------------------
+
+def read_scorefile_robust(filepath: str, debug: bool = False) -> pd.DataFrame:
+    """
+    Read a Rosetta whitespace-separated score file with automatic fallback for
+    rows that have inconsistent column counts.
+
+    Rosetta appends results from multiple independent jobs into a single score
+    file.  If a job was interrupted, or different score terms were written by
+    different runs, some rows may have a different column count than the header.
+
+    Strategy:
+      1. Strict pass  – standard ``pd.read_csv`` (fast, raises on bad rows).
+      2. Lenient pass – re-read with ``on_bad_lines='skip'`` (pandas ≥ 1.3) or
+                        the deprecated ``error_bad_lines=False`` (pandas < 1.3).
+         A warning is printed listing how many rows were dropped so the user
+         can decide whether the loss of data is acceptable.
+
+    Args:
+        filepath (str): Path to the Rosetta score file.
+        debug (bool):   Enable verbose debug output.
+
+    Returns:
+        pd.DataFrame: Loaded score data (header row and SEQUENCE line excluded).
+
+    Raises:
+        ValueError: If the file cannot be parsed even after the lenient pass.
+    """
+    read_kwargs = dict(sep=r'\s+', skiprows=[0])
+
+    # --- Strict first pass ---
+    try:
+        df = pd.read_csv(filepath, **read_kwargs)
+        if debug:
+            print(f"[DEBUG] read_scorefile_robust: loaded {len(df)} rows (strict) from '{filepath}'")
+        return df
+    except pd.errors.ParserError as strict_err:
+        if debug:
+            print(f"[DEBUG] Strict read failed: {strict_err}")
+        # Fall through to lenient pass
+
+    # --- Count raw data lines so we can report how many were skipped ---
+    try:
+        with open(filepath, 'r') as fh:
+            raw_lines = fh.readlines()
+        # Line 0 = "SEQUENCE: ...", line 1 = column headers → data starts at line 2
+        n_data_lines = max(0, len(raw_lines) - 2)
+    except OSError:
+        n_data_lines = None
+
+    # --- Lenient pass: skip malformed rows ---
+    try:
+        # pandas >= 1.3
+        df = pd.read_csv(filepath, **read_kwargs, on_bad_lines='skip')
+    except TypeError:
+        try:
+            # pandas < 1.3  (error_bad_lines is deprecated but still functional)
+            df = pd.read_csv(filepath, **read_kwargs,
+                             error_bad_lines=False, warn_bad_lines=True)  # type: ignore[call-overload]
+        except Exception as e:
+            raise ValueError(
+                f"Could not parse score file '{filepath}' even after skipping malformed rows.\n"
+                f"Original error: {e}"
+            ) from e
+    except pd.errors.ParserError as e:
+        raise ValueError(f"Could not parse score file '{filepath}': {e}") from e
+
+    n_loaded = len(df)
+    n_skipped = (n_data_lines - n_loaded) if n_data_lines is not None else "an unknown number of"
+
+    print(
+        f"\nWarning: Score file '{filepath}' contained rows with inconsistent column counts.\n"
+        f"  Skipped {n_skipped} malformed row(s); {n_loaded} valid rows were loaded.\n"
+        f"  Common causes:\n"
+        f"    • A Rosetta job was interrupted before writing a complete line\n"
+        f"    • Jobs from different runs produced different numbers of score terms\n"
+        f"    • The file was manually edited or partially overwritten\n"
+        f"  Action: inspect the score file and decide whether the skipped rows affect your results."
+    )
+
+    if debug:
+        print(f"[DEBUG] read_scorefile_robust: {n_loaded} rows loaded, {n_skipped} row(s) skipped")
+
+    if df.empty:
+        raise ValueError(
+            f"Score file '{filepath}' has no valid rows after skipping malformed lines. "
+            f"Please check the file and the Rosetta run logs."
+        )
+
+    return df
+
+
+# ---------------------------------------------------------------------------
+
 class DataProcessor:
     """
     A class for processing glycan masking data and score files.
@@ -43,7 +139,7 @@ class DataProcessor:
             ptm_cutoff (float): PTM prediction metric cutoff
             pdb_file (str): Path to PDB file for proximity checking
             glycan_positions (List[int]): Known glycan positions
-            motif (str): Motif type ('NxT' or 'FxNxT')
+            motif (str): Motif type ('NxT', 'NxS/T', or 'FxNxT')
             distance_cutoff (float): Distance cutoff for nearby residue detection
             
         Returns:
@@ -55,9 +151,9 @@ class DataProcessor:
             print(f"[DEBUG] Construct: {construct}")
             print(f"[DEBUG] Motif: {motif}")
         
-        # Read and process score file
+        # Read and process score file (robust: retries with bad-line skipping on parse errors)
         try:
-            df_glycan = pd.read_csv(scorefile, sep='\s+', skiprows=[0])
+            df_glycan = read_scorefile_robust(scorefile, debug=self.debug)
             if self.debug:
                 print(f"[DEBUG] Loaded {len(df_glycan)} rows from score file")
         except Exception as e:
@@ -69,22 +165,50 @@ class DataProcessor:
         df_glycan['new_desc'] = df_glycan['description'].str[:-5]
         df_glycan.dropna(inplace=True)
 
-        # Filter for construct
-        df_construct_filtered = df_glycan[df_glycan['new_desc'].str.contains(construct, case=False, na=False)]
+        # Filter for construct — use .copy() to avoid SettingWithCopyWarning on subsequent operations
+        df_construct_filtered = df_glycan[df_glycan['new_desc'].str.contains(construct, case=False, na=False)].copy()
 
         if self.debug:
             print(f"[DEBUG] Found {len(df_construct_filtered)} entries for construct {construct}")
+            print(f"[DEBUG] Unique new_desc values (first 10): {df_glycan['new_desc'].unique()[:10].tolist()}")
 
-        # Clean up column names
-        for column in df_construct_filtered.columns:
-            if "PTMPredictionMetric" in column:
-                index_of_character = column.find("_")
-                if index_of_character != -1:
-                    new_column_name = column[:index_of_character]
-                    df_construct_filtered.rename(columns={column: new_column_name}, inplace=True)
+        # Early exit with a clear message if the construct is not found
+        if df_construct_filtered.empty:
+            raise ValueError(
+                f"No entries found for construct '{construct}' in the score file. "
+                f"Check the --construct argument and confirm the score file contains matching descriptions."
+            )
 
-        # Extract glycan position
-        df_construct_filtered['glycan_pos'] = df_construct_filtered['new_desc'].str.rsplit('_').str[-1].astype(int)
+        # Clean up column names: rename all PTMPredictionMetric_* columns to
+        # 'PTMPredictionMetric'.  For a dimer system Rosetta may write one column
+        # per chain (e.g. PTMPredictionMetric_chainA_0 and PTMPredictionMetric_chainB_0),
+        # which would both be renamed to the same name, creating duplicate columns that
+        # cause a downstream AttributeError in groupby/agg.
+        # Solution: collect all PTMPredictionMetric columns first, average them into
+        # a single 'PTMPredictionMetric' column, then drop the originals.
+        ptm_cols = [col for col in df_construct_filtered.columns if 'PTMPredictionMetric' in col]
+
+        if self.debug:
+            print(f"[DEBUG] PTMPredictionMetric columns found: {ptm_cols}")
+
+        if len(ptm_cols) == 1 and ptm_cols[0] != 'PTMPredictionMetric':
+            # Single column with a suffix — rename it directly
+            df_construct_filtered.rename(columns={ptm_cols[0]: 'PTMPredictionMetric'}, inplace=True)
+        elif len(ptm_cols) > 1:
+            # Multiple columns (dimer or multi-chain) — average across chains into one column
+            df_construct_filtered['PTMPredictionMetric'] = df_construct_filtered[ptm_cols].mean(axis=1)
+            df_construct_filtered.drop(columns=[c for c in ptm_cols if c != 'PTMPredictionMetric'],
+                                       inplace=True)
+            if self.debug:
+                print(f"[DEBUG] Merged {len(ptm_cols)} PTMPredictionMetric columns into one (row-wise mean)")
+
+        # Extract glycan position.
+        # For dimer runs the last token may be a grouped string like "198,974".
+        # Split on ',' and take the first component so the conversion to int always works.
+        df_construct_filtered['glycan_pos'] = (
+            df_construct_filtered['new_desc'].str.rsplit('_').str[-1]
+            .str.split(',').str[0].str.strip().astype(int)
+        )
 
         # Check for cysteine modifications
         if self.debug:
@@ -92,14 +216,43 @@ class DataProcessor:
 
         # Filter NPT sequences and calculate means
         filtered_df = df_construct_filtered[~df_construct_filtered['final_sequence'].str.contains('NPT')].copy()
+
+        if self.debug:
+            n_npt = len(df_construct_filtered) - len(filtered_df)
+            print(f"[DEBUG] Removed {n_npt} NPT rows; {len(filtered_df)} rows remain after NPT filter")
+
+        if filtered_df.empty:
+            raise ValueError(
+                f"No entries remain after filtering out NPT sequences for construct '{construct}'. "
+                f"All {len(df_construct_filtered)} matched row(s) contained 'NPT' in final_sequence."
+            )
+
+        # Determine sequon type for each position (for plotting different markers)
+        def get_sequon_type(seq):
+            """Extract sequon type (NxS or NxT) from final_sequence"""
+            if not isinstance(seq, str) or len(seq) < 3:
+                return None
+            third = seq[2]
+            last = seq[-1]
+            if third.upper() == "N" and last.upper() in ["S", "T"]:
+                return f"Nx{last.upper()}"
+            return None
+        
+        # Add sequon type to filtered_df
+        filtered_df['sequon_type'] = filtered_df['final_sequence'].apply(get_sequon_type)
+        
         result_df = filtered_df.groupby('new_desc', as_index=False).agg({
             'd_total_score': 'mean',
             'PTMPredictionMetric': 'mean',
             'RMSD_filter': 'mean',
-            'native_total_energy': 'mean'
+            'native_total_energy': 'mean',
+            'sequon_type': lambda x: x.mode().iloc[0] if not x.mode().empty else None  # Most common sequon type
         })
 
-        result_df['glycan_pos'] = result_df['new_desc'].str.rsplit('_').str[-1].astype(int)
+        result_df['glycan_pos'] = (
+            result_df['new_desc'].str.rsplit('_').str[-1]
+            .str.split(',').str[0].str.strip().astype(int)
+        )
         result_df.sort_values(by='glycan_pos', inplace=True)
 
         # Calculate score cutoff
@@ -162,11 +315,23 @@ class DataProcessor:
         Returns:
             float: Calculated score cutoff
         """
+        # Guard against empty result_df (catches programmer errors / unexpected upstream filtering)
+        if result_df.empty or result_df['d_total_score'].dropna().empty:
+            raise ValueError(
+                "Cannot calculate score cutoff: result_df is empty or contains no valid d_total_score values. "
+                "Verify that the score file, construct filter, and NPT filter leave at least one row."
+            )
+
         if glycan_positions:
-            wt_scores = result_df[result_df['glycan_pos'].isin(glycan_positions)]['d_total_score']
-            total_score_cutoff = max(wt_scores) if not wt_scores.empty else np.percentile(result_df['d_total_score'], percentage_cutoff)
+            wt_scores = result_df[result_df['glycan_pos'].isin(glycan_positions)]['d_total_score'].dropna()
+            if not wt_scores.empty:
+                total_score_cutoff = float(max(wt_scores))
+            else:
+                if self.debug:
+                    print(f"[DEBUG] No wild-type positions found in result_df; falling back to percentile cutoff")
+                total_score_cutoff = float(np.percentile(result_df['d_total_score'].dropna(), percentage_cutoff))
         else:
-            total_score_cutoff = np.percentile(result_df['d_total_score'], percentage_cutoff)
+            total_score_cutoff = float(np.percentile(result_df['d_total_score'].dropna(), percentage_cutoff))
         
         if self.debug:
             print(f"[DEBUG] Calculated score cutoff: {total_score_cutoff}")
@@ -179,12 +344,13 @@ class DataProcessor:
         
         Args:
             glycan_positions (List[int]): Known glycan positions
-            motif (str): Motif type ('NxT' or 'FxNxT')
+            motif (str): Motif type ('NxT', 'NxS/T', or 'FxNxT')
             
         Returns:
             List[int]: List of wild-type motif positions
         """
-        if motif == 'NxT':
+        if motif in ['NxT', 'NxS/T']:
+            # NxS/T means it can be either NxS or NxT, handled the same as NxT
             wild_type_motifs = [x+2 for x in glycan_positions] + glycan_positions
         else:  # FxNxT
             wild_type_motifs = [x+2 for x in glycan_positions] + [x-2 for x in glycan_positions] + glycan_positions
@@ -205,7 +371,7 @@ class DataProcessor:
             pd.DataFrame: Loaded and preprocessed DataFrame
         """
         try:
-            df = pd.read_csv(scorefile, sep='\s+', skiprows=[0])
+            df = read_scorefile_robust(scorefile, debug=self.debug)
             if self.debug:
                 print(f"[DEBUG] Loaded score file with {len(df)} rows and {len(df.columns)} columns")
             return df

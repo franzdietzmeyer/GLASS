@@ -1,25 +1,15 @@
 #!/bin/bash
-
-
-echo "╔═══════════════════════════════════════════════════════════════╗"
-echo "║                                                               ║"
-echo "║                     Thank you for using                       ║"
-echo "║                                                               ║"
-echo "║   █████████  █████         █████████    █████████   █████████ ║"
-echo "║  ███░░░░░███░░███         ███░░░░░███  ███░░░░░███ ███░░░░░███║"
-echo "║ ███     ░░░  ░███        ░███    ░███ ░███    ░░░ ░███    ░░░ ║"
-echo "║░███          ░███        ░███████████ ░░█████████ ░░█████████ ║"
-echo "║░███    █████ ░███        ░███░░░░░███  ░░░░░░░░███ ░░░░░░░░███║"
-echo "║░░███  ░░███  ░███      █ ░███    ░███  ███    ░███ ███    ░███║"
-echo "║ ░░█████████  ███████████ █████   █████░░█████████ ░░█████████ ║"
-echo "║  ░░░░░░░░░  ░░░░░░░░░░░ ░░░░░   ░░░░░  ░░░░░░░░░   ░░░░░░░░░  ║"
-echo "║                                                               ║"
-echo "║               Glycan Analysis for Site Shielding              ║"
-echo "╚═══════════════════════════════════════════════════════════════╝"
+# GLASS pipeline entry point (Snakemake prepare_positions or legacy full/analysis run).
+# Position/PDB helpers are in scripts/position_utils.sh (sourced below).
 
 set -e
 
 CONFIG_FILE="config.ini"
+
+# Base directory of this run (local_run); required by scripts/position_utils.sh
+GLASS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/position_utils.sh
+source "$GLASS_ROOT/scripts/position_utils.sh"
 
 read_config() {
     if [[ ! -f "$CONFIG_FILE" ]]; then
@@ -33,8 +23,11 @@ read_config() {
     enhanced_mode=$(grep "^enhanced_mode" "$CONFIG_FILE" | cut -d'=' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
     glycan_model=$(grep "^glycan_model" "$CONFIG_FILE" | cut -d'=' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
     rosetta_docker_cont=$(grep "^rosetta_docker_cont" "$CONFIG_FILE" | cut -d'=' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    # Read chain_id early so it is available for parse_positions (e.g. when position_ranges
+    # is set to a layer keyword like "surface" or "boundary")
+    chain_id=$(grep "^chain_id" "$CONFIG_FILE" | cut -d'=' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
     
-    if [[ -z "$pdb_name" || -z "$position_ranges" || -z "$enhanced_mode" || -z "$glycan_model" || -z "$rosetta_docker_cont" ]]; then
+    if [[ -z "$pdb_name" || -z "$position_ranges" || -z "$enhanced_mode" || -z "$glycan_model" || -z "$rosetta_docker_cont" || -z "$chain_id" ]]; then
         echo "Error: Missing required configuration variables in '$CONFIG_FILE'" >&2
         exit 1
     fi
@@ -63,128 +56,6 @@ read_config() {
     fi
 }
 
-parse_positions() {
-    local ranges="$1"
-    local pdb_file="$2"
-    local positions=()
-    local grouped_positions=()
-    
-    # Check if "all" is specified
-    ranges_trimmed=$(echo "$ranges" | tr -d ' ' | tr '[:upper:]' '[:lower:]')
-    if [[ "$ranges_trimmed" == "all" ]]; then
-        # Extract all unique residue positions from PDB
-        grep -E "^(ATOM|HETATM)" "$pdb_file" | \
-            awk '{resnum=substr($0, 23, 4)+0; print resnum}' | \
-            sort -nu
-        return
-    fi
-    
-    # Split by comma, but be careful with brackets
-    IFS=',' read -ra range_array <<< "$ranges"
-    current_group=""
-    in_brackets=false
-    
-    for range in "${range_array[@]}"; do
-        range=$(echo "$range" | tr -d ' ')
-        
-        # Check if this element starts a bracket group
-        if [[ "$range" =~ ^\[([0-9,]+)$ ]]; then
-            in_brackets=true
-            current_group="${BASH_REMATCH[1]}"
-        # Check if this element ends a bracket group
-        elif [[ "$range" =~ ^([0-9,]+)\]$ ]]; then
-            in_brackets=false
-            current_group+=",${BASH_REMATCH[1]}"
-            grouped_positions+=("$current_group")
-            current_group=""
-        # Check if we're inside brackets
-        elif [[ "$in_brackets" == true ]]; then
-            current_group+=",$range"
-        # Handle individual positions or ranges outside brackets
-        else
-            if [[ "$range" =~ ^([0-9]+)-([0-9]+)$ ]]; then
-                start="${BASH_REMATCH[1]}"
-                end="${BASH_REMATCH[2]}"
-                for ((i=start; i<=end; i++)); do
-                    positions+=("$i")
-                done
-            else
-                positions+=("$range")
-            fi
-        fi
-    done
-    
-    # Output grouped positions first (as comma-separated strings), then individual positions
-    for group in "${grouped_positions[@]}"; do
-        echo "$group"
-    done
-    printf '%s\n' "${positions[@]}" | sort -nu
-}
-
-get_cysteine_positions() {
-    local pdb_file="$1"
-    grep -E "^(ATOM|HETATM)" "$pdb_file" | \
-        awk '{if (substr($0, 18, 3) == "CYS") print substr($0, 23, 4)}' | \
-        tr -d ' ' | sort -nu
-}
-
-# Get the minimum and maximum residue positions from the PDB file --> for later trimming
-get_sequence_bounds() {
-    local pdb_file="$1"
-    grep -E "^(ATOM|HETATM)" "$pdb_file" | \
-        awk '{resnum=substr($0, 23, 4)+0; print resnum}' | \
-        sort -nu | \
-        awk 'NR==1{min=$1} {max=$1} END{print min, max}'
-}
-
-# Check for last or first 4 Positions
-is_terminal_position() {
-    local pos="$1"
-    local min_pos="$2"
-    local max_pos="$3"
-    local n_term_cutoff=$((min_pos + 3))
-    local c_term_cutoff=$((max_pos - 3))
-    
-    if [[ "$pos" -le "$n_term_cutoff" ]] || [[ "$pos" -ge "$c_term_cutoff" ]]; then
-        return 0
-    fi
-    return 1
-}
-
-# Return the three-letter residue name at a given position (e.g., ASN, SER)
-get_residue_name_at_position() {
-    local pdb_file="$1"
-    local position="$2"
-    awk -v pos="$position" '($1=="ATOM"||$1=="HETATM"){resnum=substr($0,23,4)+0; if(resnum==pos){print substr($0,18,3); exit}}' "$pdb_file" | tr -d ' '
-}
-
-# Check if position starts an N-X-[S/T] sequon: ASN at pos and SER/THR at pos+2 --> dont mutate existing NxT or NxS motifs
-#is_nglyc_sequon_start() {
-#    local pdb_file="$1"
-#    local position="$2"
-#    local res0
-#    local res2
-#    res0=$(get_residue_name_at_position "$pdb_file" "$position")
-#    res1=$(get_residue_name_at_position "$pdb_file" "$((position + 1))")
-#    res2=$(get_residue_name_at_position "$pdb_file" "$((position + 2))")
-#    if [[ "$res0" == "ASN" && "$res1" != "PRO" && ( "$res2" == "SER" || "$res2" == "THR" ) ]]; then
-#        return 0
-#    fi
-#    return 1
-#}
-
-is_cysteine() {
-    local pos="$1"
-    shift
-    local cys_positions=("$@")
-    for cys in "${cys_positions[@]}"; do
-        if [[ "$pos" == "$cys" ]]; then
-            return 0
-        fi
-    done
-    return 1
-}
-
 run_glycan_masking() {
     local pdb_path="$1"
     local position="$2"
@@ -196,34 +67,18 @@ run_glycan_masking() {
 }
 
 main() {
+    local mode="${1:-full}"
+    local positions_out="${2:-}"
     read_config
     pdb_file="input_files/${pdb_name}.pdb"
-    mapfile -t parsed_output < <(parse_positions "$position_ranges" "$pdb_file")
-    mapfile -t cys_positions < <(get_cysteine_positions "$pdb_file")
+    # Ensure the requested chain actually exists in the PDB before continuing.
+    check_chain_in_pdb "$pdb_file" "$chain_id"
+    mapfile -t parsed_output < <(parse_positions "$position_ranges" "$pdb_file" "$chain_id")
+    mapfile -t cys_positions < <(get_cysteine_positions "$pdb_file" "$chain_id")
     
-    read min_pos max_pos < <(get_sequence_bounds "$pdb_file")
+    read min_pos max_pos < <(get_sequence_bounds "$pdb_file" "$chain_id")
     echo "Sequence range: $min_pos to $max_pos"
     echo "Skipping positions within 4 residues of termini (N-term: $min_pos-$((min_pos+3)), C-term: $((max_pos-3))-$max_pos)"
-
-    # Function to find all N-X-[S/T] sequons in the PDB file and return starting positions, excluding those with PRO at the X position
-    find_nglyc_sequon_starts() {
-        local pdb_file="$1"
-        local sequon_starts=()
-        # Array for PDB residue info: (number name)
-        mapfile -t residues < <(awk '($1=="ATOM"||$1=="HETATM"){printf "%d %s\n", substr($0,23,4)+0, substr($0,18,3)}' "$pdb_file" | sort -nk1 | uniq)
-        local num_residues="${#residues[@]}"
-        for ((i=0; i<=num_residues-3; i++)); do
-            res0=(${residues[$i]})
-            res1=(${residues[$((i+1))]})
-            res2=(${residues[$((i+2))]})
-            # Check: N - not PRO - S/T (N^P[ST])
-            if [[ "${res0[1]}" == "ASN" && "${res1[1]}" != "PRO" && "${res2[1]}" =~ ^(SER|THR)$ ]]; then
-                sequon_starts+=("${res0[0]}")
-            fi
-        done
-        # Remove duplicates just in case, print one per line
-        printf "%s\n" "${sequon_starts[@]}" | sort -nu
-    }
 
     # Separate grouped positions from individual positions
     grouped_runs=()
@@ -239,14 +94,21 @@ main() {
         fi
     done
     
-    # Validate individual positions
+    # Validate individual positions (skip terminal and CYS)
     valid_individual_positions=()
+    skipped_terminal=()
+    skipped_cys=()
     for pos in "${individual_positions[@]}"; do
-        if ! is_terminal_position "$pos" "$min_pos" "$max_pos" && \
-           ! is_cysteine "$pos" "${cys_positions[@]}"; then
+        if is_terminal_position "$pos" "$min_pos" "$max_pos"; then
+            skipped_terminal+=("$pos")
+        elif is_cysteine "$pos" "${cys_positions[@]}"; then
+            skipped_cys+=("$pos")
+        else
             valid_individual_positions+=("$pos")
         fi
     done
+    [[ ${#skipped_terminal[@]} -gt 0 ]] && echo "INFO: Skipped (terminal): ${skipped_terminal[*]}"
+    [[ ${#skipped_cys[@]} -gt 0 ]] && echo "INFO: Skipped (CYS): ${skipped_cys[*]}"
     
     # Validate grouped positions (check each position in the group)
     valid_grouped_runs=()
@@ -267,11 +129,13 @@ main() {
         fi
     done
 
-    # Add already present N^P[ST] sequon starts in the PDB file as valid positions
-    # to have wild-type scores as comparison for the introduced sequons.
-    mapfile -t native_sequons < <(find_nglyc_sequon_starts "$pdb_file")
+    # Add already present N^P[ST] sequon starts in the PDB file (selected chain only) as valid positions.
+    mapfile -t native_sequons < <(find_nglyc_sequon_starts "$pdb_file" "$chain_id")
+    n_from_config_individual=${#valid_individual_positions[@]}
+    n_from_config_grouped=${#valid_grouped_runs[@]}
+    n_wt_added=0
     for seq_pos in "${native_sequons[@]}"; do
-        # Avoid duplicates in individual positions
+        # Avoid duplicates: do not add if already in list (from config or earlier WT)
         skip=false
         for vpos in "${valid_individual_positions[@]}"; do
             if [[ "$vpos" == "$seq_pos" ]]; then
@@ -281,8 +145,62 @@ main() {
         done
         if [ "$skip" = false ]; then
             valid_individual_positions+=("$seq_pos")
+            n_wt_added=$((n_wt_added + 1))
         fi
     done
+    n_total=$((n_from_config_individual + n_from_config_grouped + n_wt_added))
+    echo "INFO: Positions from config (after validation): $n_from_config_individual individual, $n_from_config_grouped grouped"
+    echo "INFO: Native (WT) N-glyc sequons on chain $chain_id: ${#native_sequons[@]} (${native_sequons[*]:-none})"
+    echo "INFO: Added from WT (not already in list): $n_wt_added → total positions to run: $n_total"
+
+    # -------------------------------------------------------------------------
+    # Optional mode: prepare_positions
+    # -------------------------------------------------------------------------
+    # When invoked as:
+    #   bash start.sh prepare_positions <output_path>
+    # If output_path is a directory (or ends with /): write positions.txt only (one position_id per line).
+    # If output_path is a file: write one position per line (legacy single file).
+    if [[ "$mode" == "prepare_positions" ]]; then
+        if [[ -z "$positions_out" ]]; then
+            echo "Error: prepare_positions mode requires an output path (file or directory)." >&2
+            exit 1
+        fi
+
+        local out_dir
+        if [[ "$positions_out" == */ ]]; then
+            out_dir="${positions_out%/}"
+        elif [[ -d "$positions_out" ]] || [[ "$positions_out" != *.* ]] && [[ "$positions_out" != */* ]]; then
+            out_dir="$positions_out"
+        else
+            # Legacy: single file
+            mkdir -p "$(dirname "$positions_out")"
+            {
+                for group in "${valid_grouped_runs[@]}"; do echo "$group"; done
+                for pos in "${valid_individual_positions[@]}"; do echo "$pos"; done
+            } | awk 'NF' | sort -u > "$positions_out"
+            echo "INFO: Wrote $(wc -l < "$positions_out") position entries to $positions_out"
+            return 0
+        fi
+
+        mkdir -p "$out_dir"
+        local count=0
+        # Single file for Snakemake: one position_id per line (individual: 6, 19; grouped: 123_124).
+        local list_file="${out_dir}/positions.txt"
+        : > "$list_file"
+        # Grouped positions: filesystem-safe id (comma -> underscore), e.g. 123_124
+        for group in "${valid_grouped_runs[@]}"; do
+            fname="${group//,/_}"
+            echo "$fname" >> "$list_file"
+            count=$((count + 1))
+        done
+        # Individual positions: residue number as position_id, e.g. 6
+        for pos in "${valid_individual_positions[@]}"; do
+            echo "$pos" >> "$list_file"
+            count=$((count + 1))
+        done
+        echo "INFO: Wrote $count position entries to ${out_dir}/positions.txt"
+        return 0
+    fi
 
     # Extract nstruct value from config.ini for parallelization
     nstruct=$(grep "^nstruct" "$CONFIG_FILE" | cut -d'=' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
@@ -414,7 +332,7 @@ main() {
     if [ "$enhanced_mode" = "true" ]; then
         motif="FxNxT"
     else
-        motif="NxT"
+        motif="NxS/T"
     fi
     
     echo "Using motif: $motif (enhanced_mode: $enhanced_mode)"
@@ -429,6 +347,7 @@ main() {
             --percentage-cutoff "$rmsd_filter" \
             --ptm-cutoff 0.5 \
             --distance-cutoff 5.0 \
+            --chain-id "$chain_id" \
             --output-dir "../${pdb_name}_out_${glycan_model}/analysis_results"
     else
         echo "Running PTMPrediction Analysis..."
@@ -451,4 +370,4 @@ main() {
 }
 
 
-main
+main "$@"
