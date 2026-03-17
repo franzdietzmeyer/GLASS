@@ -25,9 +25,11 @@ keep-incomplete: true
 # These can be overridden per-rule via "resources" and "threads".
 default-resources:
   - mem_mb=16000          # default memory in MB
-  - runtime=10           # default walltime in minutes
+  - runtime=100           # default walltime in minutes
   - partition="paul"  # change to your site's default partition
   # - slurm_account="your_account"  # uncomment and set if your site uses accounts
 
-# Job naming and log locations (relative to the working dir).
-jobname: "{workflow.name}.{rule}.{jobid}.{wildcards}"
+# Job naming and log locations.
+# On HPC, run via run_glass_snakemake.sh which passes --directory and --slurm-logdir
+# with absolute paths (avoids "Permission denied" when job cwd is /var/spool/slurmd/...).
+jobname: "{rule}.{jobid}.{wildcards}"

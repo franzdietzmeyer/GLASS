@@ -10,50 +10,48 @@
 !.gitignore
 
 ############################################################
-# Allow core local_run workflow scripts and configs
+# Allow main execution script and docs at repo root
 ############################################################
-!local_run/
-
-# Top-level local_run files required for running the workflow
-!local_run/Snakefile*
-!local_run/snake_common.py
-!local_run/run_glass_snakemake.sh
-!local_run/Glycan_Masking.sh
-!local_run/config.ini
-!local_run/requirements*.txt
-!local_run/helper_scripts/*
-!local_run/scripts/*
-!local_run/tests/*
-!local_run/input_files/*
 !README.md
-############################################################
-# Allow Snakemake profiles configs
-############################################################
-!local_run/profiles/
-!local_run/profiles/local/
-!local_run/profiles/slurm/
+!run_glass_snakemake.sh
 
-!local_run/profiles/local/config.yaml
-!local_run/profiles/slurm/config.yaml
+############################################################
+# Allow config, workflows, scripts, analysis, tests, input_files, requirements
+############################################################
+!requirements/
+!requirements/**
+!config/
+!config/**
+!workflows/
+!workflows/**
+!scripts/
+!scripts/**
+!analysis/
+!analysis/**
+!tests/
+!tests/**
+!input_files/
+!input_files/**
 
 ############################################################
 # Allow any logo assets anywhere in the repo
-# (adjust pattern if your logo has a different name)
 ############################################################
 !**/*logo*
 
 ############################################################
-# Re-ignore generated / runtime data under local_run
+# Re-ignore generated / runtime data at root
 ############################################################
-local_run/results/
-local_run/.snakemake/
-local_run/logs/
+results/
+.snakemake/
+logs/
+*out*
 
 ############################################################
 # Ignore virtual environments and common Python build artifacts
 ############################################################
 .venv*/
-venv*/
+venv/*
+!venv/README.md
 __pycache__/
 *.py[cod]
 *.so
@@ -62,4 +60,3 @@ build/
 dist/
 *.egg-info/
 *.pdb
-

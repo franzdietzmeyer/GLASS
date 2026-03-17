@@ -1,5 +1,5 @@
 """
-Shared Snakemake helpers for the GLASS local_run workflow.
+Shared Snakemake helpers for the GLASS workflow.
 
 This module centralizes reading config.ini and deriving common paths so
 that both the no_glycans and glycans Snakefiles stay in sync.
@@ -10,7 +10,9 @@ import configparser
 from snakemake.exceptions import WorkflowError
 
 
-CONFIG_INI = "config.ini"
+# Allow overriding the config path from the launcher via environment variable.
+# Default remains the repository config/config.ini.
+CONFIG_INI = os.environ.get("GLASS_CONFIG_INI", "config/config.ini")
 
 
 def load_config(section: str = "DEFAULT"):
@@ -52,4 +54,7 @@ POSITIONS_DIR = os.path.join(RESULT_DIR, "positions")
 POSITIONS_LIST = os.path.join(POSITIONS_DIR, "positions.txt")
 OUT_DIR = RESULT_DIR  # merged scores and analysis_output go here
 ANALYSIS_MARKER = os.path.join(RESULT_DIR, f".analysis_done_{RUN_LABEL}")
+
+# Score file names based on PDB input name (instead of Full_run.sc)
+SCOREFILE_NAME = f"{PDB_NAME}.sc"
 

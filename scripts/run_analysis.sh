@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run GLASS analysis (main_analysis.py). Called by Snakemake rule analyze.
 # Usage: run_analysis.sh <config> <scorefile> <pdb_path> <construct> <output_marker> <out_dir>
-# Paths (scorefile, pdb_path, out_dir) are relative to local_run; script runs from helper_scripts.
+# Paths (scorefile, pdb_path, out_dir) are relative to repo root; script runs from analysis/.
 set -euo pipefail
 
 config="$1"
@@ -24,7 +24,7 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GLASS_ROOT="$(dirname "$SCRIPT_DIR")"
-cd "$GLASS_ROOT/helper_scripts"
+cd "$GLASS_ROOT/analysis"
 
 if [[ "$glycan_model" == "glycans" ]]; then
     python main_analysis.py --mode glycan \

@@ -320,8 +320,9 @@ class PTMAnalyzer:
         else:
             pos_to_label = {}
 
-        # --- Build x-tick labels ---
+        # --- Build x-tick labels and sequon strings for CSV export ---
         position_labels = []
+        sequon_strings = []
         for pos in ptm_mean.index:
             display_pos = pos_to_label.get(pos, str(pos))  # "198,974" or "198"
             subdf = df[df['position'] == pos]
@@ -333,19 +334,23 @@ class PTMAnalyzer:
                 value_counts = sequons.value_counts(normalize=True)
                 if len(value_counts) == 1:
                     # Two lines: position then sequon, e.g. "198\nNxT"
-                    label = f"{display_pos}\n{value_counts.index[0]}"
+                    seq_str = value_counts.index[0]
+                    label = f"{display_pos}\n{seq_str}"
                 else:
                     # Two lines: position then mixed sequons, e.g. "198,974\nNxS(60%) NxT(40%)"
                     parts = " ".join(
                         f"{seq}({int(round(freq * 100))}%)"
                         for seq, freq in value_counts.items()
                     )
+                    seq_str = parts
                     label = f"{display_pos}\n{parts}"
             else:
                 # Position label only — cleaner for large sets
+                seq_str = ""
                 label = str(display_pos)
 
             position_labels.append(label)
+            sequon_strings.append(seq_str)
 
         # --- Colors ---
         from plotting_utils import PlottingUtils
@@ -446,6 +451,22 @@ class PTMAnalyzer:
         # bbox_inches='tight' in savefig will also expand the canvas if needed.
         bottom_margin = 0.28 if use_sequon_labels else 0.20
         plt.subplots_adjust(bottom=bottom_margin)
+
+        # Save plotted data as CSV for easy recreation (e.g. in Prism)
+        csv_file = output_file.rsplit('.', 1)[0] + '.csv'
+        position_labels_display = [pos_to_label.get(p, str(p)) for p in ptm_mean.index]
+        plot_data = pd.DataFrame({
+            'position': ptm_mean.index,
+            #'position_label': position_labels_display,
+            'sequon': sequon_strings,
+            f'{ptm_column}_mean': ptm_mean.values,
+            f'{ptm_column}_std': ptm_std.fillna(0).values,
+            'is_wildtype': [_is_wildtype(p) for p in ptm_mean.index],
+            'category': ['Wild-type' if _is_wildtype(p) else 'New' for p in ptm_mean.index],
+        })
+        plot_data.to_csv(csv_file, index=False, na_rep='')
+        if self.debug:
+            print(f"[DEBUG] PTM plot data saved to: {csv_file}")
 
         # Save plot — bbox_inches='tight' trims whitespace and ensures nothing is clipped
         plt.savefig(output_file, dpi=300, bbox_inches='tight')

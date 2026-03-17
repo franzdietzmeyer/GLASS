@@ -13,7 +13,8 @@
 set -euo pipefail
 
 OUTPUT_DIR="$1"
-CONFIG_FILE="config.ini"
+# Allow overriding the config path from the launcher via environment variable.
+CONFIG_FILE="${GLASS_CONFIG_INI:-config/config.ini}"
 
 if [[ -z "$OUTPUT_DIR" ]]; then
     echo "Error: prepare_positions.sh requires an output directory argument." >&2
@@ -25,7 +26,7 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
     exit 1
 fi
 
-# Base directory of this run (local_run); required by scripts/position_utils.sh
+# Repo root; required by scripts/position_utils.sh
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GLASS_ROOT="$(dirname "$SCRIPT_DIR")"
 # shellcheck source=scripts/position_utils.sh

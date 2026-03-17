@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Position and PDB utilities for the GLASS pipeline.
-# Sourced by start.sh; expects GLASS_ROOT to be set to the local_run directory.
+# Sourced by prepare_positions.sh; expects GLASS_ROOT to be set to the repo root.
 # Do not execute directly.
 #
 
@@ -73,7 +73,7 @@ parse_positions() {
             layer_type="boundary"
         fi
 
-        local helper_script="${GLASS_ROOT}/helper_scripts/get_surface_residues.py"
+        local helper_script="${GLASS_ROOT}/analysis/get_surface_residues.py"
         if [[ ! -f "$helper_script" ]]; then
             echo "Error: Layer selector helper script not found: $helper_script" >&2
             exit 1

@@ -427,6 +427,15 @@ class PlottingUtils:
         output_file = os.path.join(self.output_dir, f"glycan_analysis_{construct}.png")
         plt.savefig(output_file, dpi=300, bbox_inches='tight')
         plt.close()  # Close the figure to free memory
+
+        # Save plotted data as CSV for easy recreation (e.g. in Prism)
+        csv_file = os.path.join(self.output_dir, f"glycan_analysis_{construct}.csv")
+        export_cols = ['glycan_pos', 'PTMPredictionMetric', 'd_total_score', 'color', 'marker']
+        if 'sequon_type' in result_df.columns:
+            export_cols.append('sequon_type')
+        result_df[export_cols].to_csv(csv_file, index=False, na_rep='')
+        if self.debug:
+            print(f"[DEBUG] Glycan plot data saved to: {csv_file}")
         
         if self.debug:
             print(f"[DEBUG] Glycan results plot saved to: {output_file}")

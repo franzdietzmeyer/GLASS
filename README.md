@@ -29,26 +29,32 @@ This repository hosts the computational models, analysis scripts, and data assoc
 
     ```bash
     git clone https://github.com/schoederlab/GLASS.git
-    cd GLASS/local_run
+    cd GLASS
     ```
 
 2. **Choose one of two Python environments** (with or without PyRosetta):
 
-### Option A: Environment **with PyRosetta** (full pipeline)
+   Virtual environments are created in the `venv/` folder. This keeps the project root clean and groups all environment data in one place.
 
-Use this if you run the full pipeline (Rosetta glycan masking via Docker) and/or use layer keywords like `surface` or `boundary` in `position_ranges` (these require PyRosetta in the analysis helper).
+### Environment
 
 1. **Create and activate the virtual environment:**
 
     ```bash
-    uv venv --python 3.12 .venv_pyrosetta
-    source .venv_pyrosetta/bin/activate   # Linux/macOS; on Windows: .venv_pyrosetta\Scripts\activate
-    uv pip install -r requirements-pyrosetta.txt
+    # Create venv folder
+    mkdir -p venv
+    # Create the virtual ennviroment with python 3.12
+    uv venv --python 3.12 venv/GLASS
+    # Activate the venv
+    source venv/GLASS/bin/activate
+    # Install the required modules for the pipeline
+    uv pip install -r requirements/requirements.txt
     ```
 
 2. **Install PyRosetta** (required for full GLASS pipeline):
 
     ```bash
+    # Install the offical PyRosetta version into the activated venv!
     # DEBUG: This uses the official PyRosetta wheel index.
     # See docs at: https://graylab.jhu.edu/PyRosetta.documentation/pyrosetta.html
     uv pip install pyrosetta --find-links https://west.rosettacommons.org/pyrosetta/quarterly/release
@@ -58,9 +64,8 @@ Use this if you run the full pipeline (Rosetta glycan masking via Docker) and/or
     please follow the official [PyRosetta installation guide](https://graylab.jhu.edu/PyRosetta.documentation/pyrosetta.html)
     for your platform and then re-run the GLASS pipeline.
 
-3. **pytest** is included in `requirements-pyrosetta.txt`; run tests with `python -m pytest tests/ -v`.
 
-4. **For local run: install the Rosetta Docker image** (for the actual Rosetta jobs):
+3. **Install the Rosetta Docker image or apptainer container** (for the actual Rosetta jobs):
 
     See [Rosetta](https://github.com/RosettaCommons/rosetta). The pipeline uses the Docker image for running Rosetta:
 
@@ -69,33 +74,13 @@ Use this if you run the full pipeline (Rosetta glycan masking via Docker) and/or
     ```
     With Apptainer/Singularity: `apptainer pull rosetta_ml.sif docker://rosettacommons/rosetta:ml`
 
-### Option B: Environment **without PyRosetta** (Biotite only)
-
-Use this for analysis-only workflows (e.g. you already have score files and only need plotting/PTM analysis). No PyRosetta license required; analysis uses Biotite for structure loading and SASA.
-
-1. **Create and activate the virtual environment:**
-
-    ```bash
-    uv venv --python 3.12 .venv_biotite
-    source .venv_biotite/bin/activate   # Linux/macOS; on Windows: .venv_biotite\Scripts\activate
-    uv rpip install -r requirements-biotite.txt
-    ```
-
-2. **pytest** is already included in `requirements-biotite.txt`. Run tests with:
-
-    ```bash
-    python -m pytest tests/ -v
-    ```
-
----
-
 ## Usage
 
 ### 1. Prepare Input Files
 Place the `.pdb` file you want to work with in the `input_files` folder.
 
 ### 2. Configure Settings
-Open the `config.ini` configuration file and edit the following variables:
+Open the `config/config.ini` configuration file and edit the following variables:
 ```ini
 # Name of the PDB file without .pdb extension
 # The file should be located in the input_files directory
@@ -143,33 +128,18 @@ RMSD_filter = 5
 
 #set the number of structures to generate, usually 50 is a good number to get some diveristy 
 nstruct = 5
-
-# Optional: Number of CPU cores to use for parallel processing
-# If not specified, will auto-detect and use 75% of available cores for system stability
-# Example: ncores = 4 (to use 4 cores in parallel)
-#ncores = 4
 ```
+
 
 ### 3. Run the Pipeline
 
-You can now run the pipeline either directly via the original bash script
-or via the new Snakemake workflow (recommended for HPC / Slurm use).
+Run the pipeline via the Snakemake workflow (local or HPC/Slurm):
 
-#### Option A: Original bash pipeline (unchanged)
-
-Navigate to the `local_run` directory and execute the startup script:
-```bash
-cd local_run
-./start.sh
-```
-
-#### Option B: Snakemake workflow (local or Slurm)
-
-The Snakemake-based entrypoint lives in `local_run/run_glass_snakemake.sh`.
+The Snakemake-based entrypoint is `run_glass_snakemake.sh` at the repository root.
 It runs the GLASS workflow via Snakemake with two internal variants:
 
-- `Snakefile_no_glycans` when `glycan_model = no_glycans` (no batching).
-- `Snakefile_glycans` when `glycan_model = glycans` (batched Rosetta jobs,
+- `workflows/Snakefile_no_glycans` when `glycan_model = no_glycans` (no batching).
+- `workflows/Snakefile_glycans` when `glycan_model = glycans` (batched Rosetta jobs,
   controlled by `glycan_batch_size`).
 
 The workflow runs in three main steps:
@@ -178,18 +148,19 @@ The workflow runs in three main steps:
 2. **Run glycan masking in parallel (local or HPC)** — One or more Rosetta jobs per position
    (multiple batches when `glycan_model = glycans`).
 3. **Run the analysis once** — After all masking jobs have finished and their scorefiles
-   have been merged into a single `Full_run.sc`.
+   have been merged into a single `{pdb_name}.sc` (e.g. `Hk6a_E2c3_AR3A_example.sc`).
 
-From the `local_run` directory:
+From the repository root:
 
 ```bash
-cd local_run
-
 # Local run using the built-in local profile
 ./run_glass_snakemake.sh local
 
 # Slurm run using the Slurm profile
 ./run_glass_snakemake.sh slurm
+
+# On HPC, run_glass_snakemake.sh uses absolute paths for --directory and --slurm-logdir
+# to avoid "Permission denied" when the job cwd is /var/spool/slurmd/... (cluster-dependent).
 
 # (Optional) Dry-run to see the planned steps without executing them
 ./run_glass_snakemake.sh local --dry-run
@@ -197,7 +168,7 @@ cd local_run
 
 The Snakemake wrapper reads experiment settings from:
 
-- `config.ini` (INI used by the workflow to determine PDB, glycan_model, batching, etc.)
+- `config/config.ini` (INI used by the workflow to determine PDB, glycan_model, batching, etc.)
 
 To enable DEBUG-style verbosity at the workflow level, set:
 
@@ -210,17 +181,17 @@ This will print the full Snakemake command being executed. You can
 disable it again by unsetting the variable or closing the shell.
 
 ## Retrieve Results
-An `output` folder will be generated containing your processed structures.
+A `results/` folder will be generated containing your processed structures.
 ### Analyzing Results and Generating Plots
 
-The analysis is now **automatically integrated** into the main pipeline and runs after all Rosetta jobs complete. The analysis scripts are located in the `helper_scripts/` directory and provide comprehensive analysis of both glycan masking and PTMPredictionMetric data.
+The analysis is now **automatically integrated** into the main pipeline and runs after all Rosetta jobs complete. The analysis scripts are located in the `analysis/` directory and provide comprehensive analysis of both glycan masking and PTMPredictionMetric data.
 
 #### Automatic Analysis (Recommended)
 
 The analysis runs automatically when you execute the main pipeline:
 
 ```bash
-./start.sh
+./run_glass_snakemake.sh local
 ```
 
 This will:
@@ -231,11 +202,14 @@ This will:
 #### Analysis Outputs
 
 After successful completion, you'll find analysis results in:
-- `{pdb_name}_out_{glycan_model}/analysis_results/`: Contains all analysis outputs
-- `{pdb_name}_out_{glycan_model}/Full_run.sc`: Rosetta score file with all metrics
+- `results/{pdb_name}_{glycan_model}/analysis_results/`: Contains all analysis outputs
+- `results/{pdb_name}_{glycan_model}/{pdb_name}.sc`: Merged Rosetta score file (all positions, no position in filename)
+- `results/{pdb_name}_{glycan_model}/out_by_position/{position_id}/{pdb_name}_position{position_id}.sc`: Per-position scorefiles for easier identification
+- `results/{pdb_name}_{glycan_model}/position_run_summary.txt`: Summary of which positions ran successfully vs failed/incomplete (printed to stdout as well)
 
 **For glycan mode (`glycan_model = glycans`):**
 - `glycan_analysis_{pdb_name}.png`: Main glycan masking analysis plot
+- `glycan_analysis_{pdb_name}.csv`: Plotted data (PTMPredictionMetric, d_total_score, etc.) for recreation in Prism or other tools
 - `summary_analysis_{pdb_name}.png`: Summary plot with key metrics
 - `score_distribution_*.png`: Score distribution plots
 - `correlation_matrix.png`: Correlation analysis between metrics
@@ -249,26 +223,26 @@ After successful completion, you'll find analysis results in:
 If you need to run analysis manually or with custom parameters, you can use the analysis scripts directly:
 
 ```bash
-cd helper_scripts
+cd analysis
 
 # Run glycan analysis
 python main_analysis.py --mode glycan \
-    --scorefile "../PDB_NAME_glycans/Full_run.sc" \
+    --scorefile "../results/PDB_NAME_glycans/PDB_NAME.sc" \
     --pdb-file "../input_files/PDB_NAME.pdb" \
     --construct "PDB_NAME" \
     --motif "NxT" \
     --percentage-cutoff 5 \
     --ptm-cutoff 0.5 \
     --distance-cutoff 5.0 \
-    --output-dir "../PDB_NAME_glycans/analysis_results"
+    --output-dir "../results/PDB_NAME_glycans/analysis_results"
 
 # Run PTM analysis (no_glycans mode)
 python main_analysis.py --mode no_glycans \
-    --scorefile "../PDB_NAME_no_glycans/Full_run.sc" \
+    --scorefile "../results/PDB_NAME_no_glycans/PDB_NAME.sc" \
     --pdb-file "../input_files/PDB_NAME.pdb" \
     --construct "r_WT_Mat_0001_0004" \
     --chain-id "A" \
-    --output-dir "../PDB_NAME_no_glycans/analysis_results"
+    --output-dir "../results/PDB_NAME_no_glycans/analysis_results"
 ```
 
 #### Analysis Features
@@ -285,8 +259,8 @@ The integrated analysis provides:
 
 Upon successful execution of the pipeline, the following key outputs will be generated:
 
-* `{pdb_name}_out_{glycan_model}/`: Main output directory containing:
-  - `Full_run.sc`: Rosetta score file with all structural metrics and PTM predictions
+* `results/{pdb_name}_{glycan_model}/`: Main output directory containing:
+  - `{pdb_name}.sc`: Rosetta score file with all structural metrics and PTM predictions
   - `*.pdb`: Generated protein structures (number depends on `nstruct` setting)
   - `{pdb_name}_run_{glycan_model}.log`: Detailed log file of the Rosetta run
   - `analysis_results/`: Directory containing analysis outputs (created after analysis runs)
@@ -295,6 +269,7 @@ Upon successful execution of the pipeline, the following key outputs will be gen
 
 **Glycan Mode (`glycan_model = glycans`):**
 - `glycan_analysis_{pdb_name}.png`: Main glycan masking analysis plot showing PTM scores vs positions
+- `glycan_analysis_{pdb_name}.csv`: Plotted data for recreation
 - `summary_analysis_{pdb_name}.png`: Comprehensive summary plot with key metrics and statistics
 - `score_distribution_*.png`: Distribution plots for different score metrics
 - `correlation_matrix.png`: Correlation analysis between structural and PTM metrics
@@ -302,10 +277,11 @@ Upon successful execution of the pipeline, the following key outputs will be gen
 
 **PTM Mode (`glycan_model = no_glycans`):**
 - `ptm_analysis_{pdb_name}.png`: Main PTM analysis plot with sequon annotations and position-based analysis
+- `ptm_analysis_{pdb_name}.csv`: Plotted data for recreation
 
 #### Score File Contents
 
-The `Full_run.sc` file contains comprehensive metrics including:
+The `{pdb_name}.sc` score file contains comprehensive metrics including:
 - `PTMPredictionMetric_*`: PTM prediction scores (automatically detected)
 - `total_score`: Overall Rosetta energy score
 - `RMSD_filter`: RMSD values for quality filtering

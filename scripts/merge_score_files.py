@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Merge per-position Rosetta score files into one Full_run.sc using pandas.
+Merge per-position Rosetta score files into one output file (e.g. {pdb_name}.sc) using pandas.
 - First file: keep SEQUENCE (line 0) and header (line 1); read data from line 2.
 - Subsequent files: skip first two lines (SEQUENCE and header), read data only.
 - Normalize PTMPredictionMetric_* columns to a single 'PTMPredictionMetric' so

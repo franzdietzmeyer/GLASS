@@ -13,6 +13,7 @@ from snake_common import (
     POSITIONS_LIST,
     OUT_DIR,
     ANALYSIS_MARKER,
+    SCOREFILE_NAME,
     NSTRUCT,
     GLYCAN_BATCH_SIZE,
 )
@@ -35,6 +36,26 @@ ruleorder:
 rule all:
     input:
         ANALYSIS_MARKER
+
+
+RUN_TOKEN = os.path.join(RESULT_DIR, ".run_token")
+
+
+def _retry_token_if_failed_batch(wildcards):
+    """
+    Only add RUN_TOKEN as an input if this batch previously failed.
+
+    If a previous run created a placeholder batch scorefile plus a FAILED_batch<id>
+    marker, the presence of RUN_TOKEN forces Snakemake to rerun this batch on the
+    next invocation.
+    """
+    failed_marker = os.path.join(
+        RESULT_DIR,
+        "out_by_position",
+        wildcards.position_id,
+        f"FAILED_batch{wildcards.batch_id}",
+    )
+    return RUN_TOKEN if os.path.exists(failed_marker) else []
 
 
 checkpoint prepare_positions:
@@ -76,7 +97,7 @@ def _batch_input(wildcards):
             RESULT_DIR,
             "out_by_position",
             wildcards.position_id,
-            f"Full_run_batch{b}.sc",
+            f"{PDB_NAME}_position{wildcards.position_id}_batch{b}.sc",
         )
         for b in range(1, n_batches + 1)
     ]
@@ -84,15 +105,16 @@ def _batch_input(wildcards):
 
 rule glycan_masking_batch:
     input:
-        pdb = PDB_PATH,
+        pdb = ancient(PDB_PATH),
         config = CONFIG_INI,
         script = "scripts/run_glycan_masking.sh",
+        token = _retry_token_if_failed_batch,
     output:
         scorefile = os.path.join(
             RESULT_DIR,
             "out_by_position",
             "{position_id}",
-            "Full_run_batch{batch_id}.sc",
+            f"{PDB_NAME}_position{{position_id}}_batch{{batch_id}}.sc",
         ),
     params:
         position_id = "{position_id}",
@@ -101,7 +123,7 @@ rule glycan_masking_batch:
         total_nstruct = NSTRUCT,
     threads: 1
     resources:
-        time = 2880,
+        runtime = 2880,   # 48 hours walltime (min) for Rosetta on HPC
         mem_mb = 16000,
     shell:
         "bash scripts/run_glycan_masking.sh "
@@ -117,7 +139,7 @@ rule merge_position_batches:
             RESULT_DIR,
             "out_by_position",
             "{position_id}",
-            "Full_run.sc",
+            f"{PDB_NAME}_position{{position_id}}.sc",
         ),
     threads: 1
     shell:
@@ -127,15 +149,17 @@ rule merge_position_batches:
 def _merged_score_input(wildcards):
     """
     Return the per-position score files Snakemake should create.
+    Per-position files are named {pdb_name}_position{position_id}.sc for easier
+    identification; the final merged file (SCOREFILE_NAME) has no position in the name.
 
     DEBUG: We intentionally do not check os.path.exists here because
     this function is evaluated before upstream rules run. It yields
-    the expected Full_run.sc paths for all positions so that
-    glycan_masking_batch and merge_position_batches are scheduled.
+    the expected per-position paths so that merge_position_batches and merge_scores
+    are scheduled.
     """
     ids = _position_ids()
     return [
-        os.path.join(RESULT_DIR, "out_by_position", pid, "Full_run.sc")
+        os.path.join(RESULT_DIR, "out_by_position", pid, f"{PDB_NAME}_position{pid}.sc")
         for pid in ids
     ]
 
@@ -145,7 +169,7 @@ rule merge_scores:
         score_files = _merged_score_input,
         script = "scripts/merge_score_files.py",
     output:
-        merged = os.path.join(OUT_DIR, "Full_run.sc"),
+        merged = os.path.join(OUT_DIR, SCOREFILE_NAME),
     threads: 1
     shell:
         "python3 scripts/merge_score_files.py {output.merged} {input.score_files}"
@@ -153,7 +177,7 @@ rule merge_scores:
 
 rule analyze:
     input:
-        scorefile = os.path.join(OUT_DIR, "Full_run.sc"),
+        scorefile = os.path.join(OUT_DIR, SCOREFILE_NAME),
         config = CONFIG_INI,
         pdb = PDB_PATH,
         script = "scripts/run_analysis.sh",
