@@ -159,7 +159,7 @@ From the repository root:
 # Slurm run using the Slurm profile
 ./run_glass_snakemake.sh slurm
 
-# On HPC, run_glass_snakemake.sh uses absolute paths for --directory and --cluster-logdir
+# On HPC, run_glass_snakemake.sh uses an absolute path for --directory
 # to avoid "Permission denied" when the job cwd is /var/spool/slurmd/... (cluster-dependent).
 
 # (Optional) Dry-run to see the planned steps without executing them

@@ -163,9 +163,24 @@ CMD=("$SNAKEMAKE_BIN" "${SNAKEFILE_ARG[@]}" --profile "workflows/profiles/$MODE"
 
 if [[ "$MODE" == "slurm" ]]; then
     # Cluster job logs: use absolute path (some clusters run jobs with cwd in a spool dir).
-    # Note: Snakemake's CLI uses the generic flag name here (not Slurm-specific).
     SLURM_LOGDIR="${GLASS_SLURM_LOGDIR:-$SCRIPT_DIR/.snakemake/slurm_logs}"
-    CMD+=("--cluster-logdir" "$SLURM_LOGDIR")
+
+    # Snakemake CLI flags for cluster log dirs have changed across major versions.
+    # Some installs support `--cluster-logdir`, others had (profile-specific) `--slurm-logdir`,
+    # and some support neither. We therefore probe `snakemake --help` and only pass a flag
+    # if it is supported, otherwise we continue without it.
+    #
+    # DEBUG: enable with GLASS_SNAKEMAKE_DEBUG=1 to see which path was taken.
+    SNAKEMAKE_HELP_TEXT="$("$SNAKEMAKE_BIN" --help 2>/dev/null || true)"
+    if [[ "$SNAKEMAKE_HELP_TEXT" == *"--cluster-logdir"* ]]; then
+        CMD+=("--cluster-logdir" "$SLURM_LOGDIR")
+        [[ "${GLASS_SNAKEMAKE_DEBUG:-0}" == "1" ]] && echo "[DEBUG] Snakemake supports --cluster-logdir; using $SLURM_LOGDIR"
+    elif [[ "$SNAKEMAKE_HELP_TEXT" == *"--slurm-logdir"* ]]; then
+        CMD+=("--slurm-logdir" "$SLURM_LOGDIR")
+        [[ "${GLASS_SNAKEMAKE_DEBUG:-0}" == "1" ]] && echo "[DEBUG] Snakemake supports --slurm-logdir; using $SLURM_LOGDIR"
+    else
+        [[ "${GLASS_SNAKEMAKE_DEBUG:-0}" == "1" ]] && echo "[DEBUG] Snakemake supports no *-logdir flag; not passing a logdir (wanted: $SLURM_LOGDIR)"
+    fi
 fi
 
 if [[ "${GLASS_SNAKEMAKE_DEBUG:-0}" == "1" ]]; then
