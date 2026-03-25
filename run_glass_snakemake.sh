@@ -142,20 +142,6 @@ fi
 export GLASS_CONFIG_INI="$CONFIG_FILE"
 
 glycan_model=$(grep "^glycan_model" "$CONFIG_FILE" | cut -d'=' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-pdb_name=$(grep "^pdb_name" "$CONFIG_FILE" | cut -d'=' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-
-# -------------------------------------------------------------------------
-# Per-run token for selective retries of failed glycan masking jobs
-# -------------------------------------------------------------------------
-# Some Rosetta jobs may fail due to filters. The workflow writes a FAILED marker
-# alongside a placeholder scorefile. On rerun, only those failed jobs should retry.
-# We implement that by touching a per-run token file, and failed jobs include it
-# as an input dependency.
-if [[ -n "${pdb_name}" && -n "${glycan_model}" ]]; then
-    RUN_TOKEN_PATH="$SCRIPT_DIR/results/${pdb_name}_${glycan_model}/.run_token"
-    mkdir -p "$(dirname "$RUN_TOKEN_PATH")"
-    date +%s > "$RUN_TOKEN_PATH"
-fi
 
 SNAKEFILE_ARG=("")
 case "$glycan_model" in
@@ -176,9 +162,10 @@ esac
 CMD=("$SNAKEMAKE_BIN" "${SNAKEFILE_ARG[@]}" --profile "workflows/profiles/$MODE" --directory "$SCRIPT_DIR")
 
 if [[ "$MODE" == "slurm" ]]; then
-    # SLURM executor stores job logs relative to workdir by default; use absolute path.
+    # Cluster job logs: use absolute path (some clusters run jobs with cwd in a spool dir).
+    # Note: Snakemake's CLI uses the generic flag name here (not Slurm-specific).
     SLURM_LOGDIR="${GLASS_SLURM_LOGDIR:-$SCRIPT_DIR/.snakemake/slurm_logs}"
-    CMD+=("--slurm-logdir" "$SLURM_LOGDIR")
+    CMD+=("--cluster-logdir" "$SLURM_LOGDIR")
 fi
 
 if [[ "${GLASS_SNAKEMAKE_DEBUG:-0}" == "1" ]]; then

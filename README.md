@@ -159,7 +159,7 @@ From the repository root:
 # Slurm run using the Slurm profile
 ./run_glass_snakemake.sh slurm
 
-# On HPC, run_glass_snakemake.sh uses absolute paths for --directory and --slurm-logdir
+# On HPC, run_glass_snakemake.sh uses absolute paths for --directory and --cluster-logdir
 # to avoid "Permission denied" when the job cwd is /var/spool/slurmd/... (cluster-dependent).
 
 # (Optional) Dry-run to see the planned steps without executing them
@@ -184,7 +184,7 @@ disable it again by unsetting the variable or closing the shell.
 A `results/` folder will be generated containing your processed structures.
 ### Analyzing Results and Generating Plots
 
-The analysis is now **automatically integrated** into the main pipeline and runs after all Rosetta jobs complete. The analysis scripts are located in the `analysis/` directory and provide comprehensive analysis of both glycan masking and PTMPredictionMetric data.
+The analysis is **automatically integrated** into the main pipeline and runs after all Rosetta jobs complete. The analysis scripts are located in the `analysis/` directory and provide comprehensive analysis of both glycan masking and PTMPredictionMetric data.
 
 #### Automatic Analysis (Recommended)
 
@@ -197,6 +197,25 @@ The analysis runs automatically when you execute the main pipeline:
 This will:
 1. Run all Rosetta glycan masking jobs in parallel
 2. **Automatically execute the analysis** once all jobs complete
+
+#### Postprocess existing outputs (merge + analysis)
+
+If some Rosetta jobs fail (e.g. due to RosettaScript filters) and you still want to
+**merge and analyze whatever outputs were produced successfully**, you can run:
+
+```bash
+# Use default config/config.ini
+./scripts/run_postprocess_existing.sh
+
+# Or provide a custom config.ini
+./scripts/run_postprocess_existing.sh --config /abs/path/to/config.ini
+```
+
+This script will:
+- collect existing per-position scorefiles under `results/<pdb>_<glycan_model>/out_by_position/`
+- skip empty/placeholder scorefiles
+- merge the remaining scorefiles into `results/<pdb>_<glycan_model>/<pdb_name>.sc`
+- run the standard GLASS analysis on the merged scorefile
 3. Generate plots and analysis results in the output directory
 
 #### Analysis Outputs

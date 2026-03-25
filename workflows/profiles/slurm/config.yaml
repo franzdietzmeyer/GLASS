@@ -30,6 +30,6 @@ default-resources:
   # - slurm_account="your_account"  # uncomment and set if your site uses accounts
 
 # Job naming and log locations.
-# On HPC, run via run_glass_snakemake.sh which passes --directory and --slurm-logdir
+# On HPC, run via run_glass_snakemake.sh which passes --directory and --cluster-logdir
 # with absolute paths (avoids "Permission denied" when job cwd is /var/spool/slurmd/...).
 jobname: "{rule}.{jobid}.{wildcards}"
