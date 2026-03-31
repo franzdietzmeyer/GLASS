@@ -12,30 +12,65 @@ nextflow.enable.dsl = 2
  * Per-task logs under results/.../logs/: scripts/nextflow_copy_task_logs.sh (NF DSL cannot call top-level def helpers).
  */
 
-process INITIAL_RELAX {
-    tag 'initial_relax'
+process INITIAL_RELAX_SHARD {
+    tag { "initial_relax_shard_${shard_id}" }
     label 'rosetta'
-    cpus { params.local_queue_size }
+    cpus 1
     afterScript = {
         def safe = task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')
         """
-        bash '${params.launch_dir}/scripts/nextflow_copy_task_logs.sh' '${params.launch_dir}' '${params.result_dir}' 'initial_relax' '${safe}'
+        bash '${params.launch_dir}/scripts/nextflow_copy_task_logs.sh' '${params.launch_dir}' '${params.result_dir}' 'initial_relax_shard' '${safe}'
         """.stripIndent()
     }
 
     when:
     params.initial_relax == true
 
+    input:
+    val(shard_id)
+
     script:
+    def out_dir_rel = new File(params.pdb_path as String).parent ?: '.'
+    // shard_id only tags the Nextflow task; Rosetta command and paths are identical every time.
+    """
+    cd '${params.launch_dir}'
+    export GLASS_CONFIG_INI='${params.config_ini_abs}'
+    bash scripts/run_initial_relax_shard.sh \\
+      '${params.input_pdb_path}' \\
+      '${params.config_ini_abs}' \\
+      '${out_dir_rel}'
+    """
+    output:
+    val(shard_id), emit: shard_done
+}
+
+process INITIAL_RELAX_FINALIZE {
+    tag 'initial_relax_finalize'
+    label 'rosetta'
+    cpus 1
+    afterScript = {
+        def safe = task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')
+        """
+        bash '${params.launch_dir}/scripts/nextflow_copy_task_logs.sh' '${params.launch_dir}' '${params.result_dir}' 'initial_relax_finalize' '${safe}'
+        """.stripIndent()
+    }
+
+    when:
+    params.initial_relax == true
+
+    input:
+    val(shard_ids)
+
+    script:
+    def out_dir_rel = new File(params.pdb_path as String).parent ?: '.'
     // Nextflow 25+ only allows path outputs inside the task work dir — copy the canonical PDB here for staging.
-    // run_initial_relax.sh still writes to results/.../initial_relax/<pdb_name>.pdb (repo-relative paths after cd).
     """
     WORK_DIR="\$PWD"
     cd '${params.launch_dir}'
     export GLASS_CONFIG_INI='${params.config_ini_abs}'
-    bash scripts/run_initial_relax.sh \\
-      '${params.input_pdb_path}' \\
+    bash scripts/run_initial_relax_finalize.sh \\
       '${params.config_ini_abs}' \\
+      '${out_dir_rel}' \\
       '${params.pdb_path}'
     mkdir -p "\$WORK_DIR/out"
     cp '${params.pdb_path_abs}' "\$WORK_DIR/out/relaxed.pdb"
@@ -223,9 +258,11 @@ process ANALYZE {
 workflow {
     main:
     if (params.initial_relax == true) {
-        INITIAL_RELAX()
+        ch_initial_shards = channel.from(1..params.initial_relax_nstruct)
+        INITIAL_RELAX_SHARD(ch_initial_shards)
+        INITIAL_RELAX_FINALIZE(INITIAL_RELAX_SHARD.out.shard_done.collect())
         // PREPARE must run only after the relaxed PDB exists (output path staged above).
-        ch_after_relax = INITIAL_RELAX.out.relaxed_pdb.map { true }
+        ch_after_relax = INITIAL_RELAX_FINALIZE.out.relaxed_pdb.map { true }
     } else {
         ch_after_relax = channel.of(true)
     }
