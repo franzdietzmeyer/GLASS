@@ -38,6 +38,7 @@ source "$GLASS_ROOT/scripts/position_utils.sh"
 
 pdb_name=$(grep "^pdb_name" "$CONFIG_FILE" | cut -d'=' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 position_ranges=$(grep "^position_ranges" "$CONFIG_FILE" | cut -d'=' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+exclude_positions_raw=$(grep "^exclude_positions" "$CONFIG_FILE" | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 chain_id=$(grep "^chain_id" "$CONFIG_FILE" | cut -d'=' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
 if [[ -z "$pdb_name" || -z "$position_ranges" || -z "$chain_id" ]]; then
@@ -45,7 +46,8 @@ if [[ -z "$pdb_name" || -z "$position_ranges" || -z "$chain_id" ]]; then
     exit 1
 fi
 
-pdb_file="input_files/${pdb_name}.pdb"
+# Optional: Snakemake/Nextflow pass the pipeline structure (e.g. after initial_relax).
+pdb_file="${GLASS_INPUT_PDB:-input_files/${pdb_name}.pdb}"
 
 # Ensure the requested chain actually exists in the PDB before continuing.
 check_chain_in_pdb "$pdb_file" "$chain_id"
@@ -126,6 +128,52 @@ echo "INFO: Positions from config (after validation): $n_from_config_individual 
 echo "INFO: Native (WT) N-glyc sequons on chain $chain_id: ${#native_sequons[@]} (${native_sequons[*]:-none})"
 echo "INFO: Added from WT (not already in list): $n_wt_added → total positions to run: $n_total"
 
+# ---------------------------------------------------------------------------
+# Exclude positions (optional): numeric positions/ranges + interface selectors
+#   exclude_positions = interface_HL,10,25
+# means: exclude interface residues between chain_id and chains H/L, and exclude 10 and 25.
+# ---------------------------------------------------------------------------
+declare -A exclude_map
+
+if [[ -n "${exclude_positions_raw:-}" ]]; then
+    # Split by comma and extract interface_* tokens.
+    IFS=',' read -ra excl_items <<< "$exclude_positions_raw"
+    numeric_excl_items=()
+    interface_specs=()
+    for item in "${excl_items[@]}"; do
+        item="$(echo "$item" | tr -d ' ')"
+        [[ -z "$item" ]] && continue
+        if [[ "$item" =~ ^interface_([A-Za-z]+)$ ]]; then
+            interface_specs+=("${BASH_REMATCH[1]}")
+        else
+            numeric_excl_items+=("$item")
+        fi
+    done
+
+    # Numeric exclusions (reuse parse_positions to support ranges like 10-15,99).
+    if [[ ${#numeric_excl_items[@]} -gt 0 ]]; then
+        numeric_excl_string="$(IFS=','; echo "${numeric_excl_items[*]}")"
+        while IFS= read -r ex_pos; do
+            [[ -n "$ex_pos" ]] && exclude_map["$ex_pos"]=1
+        done < <(parse_positions "$numeric_excl_string" "$pdb_file" "$chain_id")
+    fi
+
+    # Interface exclusions (requires PyRosetta)
+    if [[ ${#interface_specs[@]} -gt 0 ]]; then
+        iface_script="${GLASS_ROOT}/analysis/get_interface_residues.py"
+        if [[ ! -f "$iface_script" ]]; then
+            echo "Error: Interface selector script not found: $iface_script" >&2
+            exit 1
+        fi
+        for partners in "${interface_specs[@]}"; do
+            echo "INFO: Excluding interface residues: chain ${chain_id} vs partner chains ${partners} (PyRosetta InterGroupInterfaceByVectorSelector)" >&2
+            while IFS= read -r ex_pos; do
+                [[ -n "$ex_pos" ]] && exclude_map["$ex_pos"]=1
+            done < <(python3 "$iface_script" --pdb "$pdb_file" --chain "$chain_id" --partners "$partners")
+        done
+    fi
+fi
+
 mkdir -p "$OUTPUT_DIR"
 list_file="${OUTPUT_DIR%/}/positions.txt"
 : > "$list_file"
@@ -133,11 +181,25 @@ list_file="${OUTPUT_DIR%/}/positions.txt"
 # Grouped positions: filesystem-safe id (comma -> underscore), e.g. 123_124
 for group in "${valid_grouped_runs[@]}"; do
     fname="${group//,/_}"
-    echo "$fname" >> "$list_file"
+    # Apply exclusions to grouped runs (drop excluded positions; skip group if empty).
+    IFS=',' read -ra group_positions <<< "$group"
+    filtered=()
+    for pos in "${group_positions[@]}"; do
+        if [[ -n "${exclude_map[$pos]:-}" ]]; then
+            continue
+        fi
+        filtered+=("$pos")
+    done
+    if [[ ${#filtered[@]} -gt 0 ]]; then
+        echo "$(IFS=_; echo "${filtered[*]}")" >> "$list_file"
+    fi
 done
 
 # Individual positions: residue number as position_id, e.g. 6
 for pos in "${valid_individual_positions[@]}"; do
+    if [[ -n "${exclude_map[$pos]:-}" ]]; then
+        continue
+    fi
     echo "$pos" >> "$list_file"
 done
 

@@ -180,6 +180,52 @@ export GLASS_SNAKEMAKE_DEBUG=1
 This will print the full Snakemake command being executed. You can
 disable it again by unsetting the variable or closing the shell.
 
+#### Nextflow (optional, partial-failure tolerant)
+
+An additive Nextflow driver is available as `run_glass_nextflow.sh`. It uses the same
+`config/config.ini`, `scripts/`, and analysis steps as Snakemake, but schedules Rosetta
+with `errorStrategy 'ignore'` and merges **existing** per-position scorefiles so downstream
+merge and analysis can still run when some jobs fail.
+
+1. **Minimal conda env (Nextflow + Java only)** — keeps the JVM stack separate from Python:
+
+   ```bash
+   mamba env create -n glass-nextflow -f environments/nextflow.yml
+   mamba activate glass-nextflow
+   ```
+
+2. **Project Python with uv** (same pattern as [Environment](#environment) above): a `venv/GLASS` env with
+   `uv pip install -r requirements/requirements.txt` and PyRosetta. **Do not** install Python packages
+   into the Nextflow conda env.
+
+3. **PATH — both tools must be visible**: `nextflow` comes from conda; `python` and your packages come
+   from the uv venv. Activate **conda first**, then the venv (order matters so `python` is the venv’s):
+
+   ```bash
+   mamba activate glass-nextflow
+   source venv/GLASS/bin/activate
+   ```
+
+   If you only activate the venv (e.g. in a batch script), `nextflow` may be missing. Either activate
+   conda in that job, or point the launcher at the conda env:
+
+   ```bash
+   export GLASS_NEXTFLOW_CONDA_PREFIX="$HOME/mambaforge/envs/glass-nextflow"   # adjust to your install
+   ./run_glass_nextflow.sh local
+   ```
+
+   `run_glass_nextflow.sh` prepends `GLASS_NEXTFLOW_CONDA_PREFIX/bin` (or `CONDA_PREFIX/bin` when
+   `nextflow` exists there) to `PATH` so Nextflow is found without mixing Python stacks.
+
+4. Run from the repository root:
+
+   ```bash
+   ./run_glass_nextflow.sh local
+   ./run_glass_nextflow.sh slurm
+   ./run_glass_nextflow.sh local -resume
+   ```
+
+
 ## Retrieve Results
 A `results/` folder will be generated containing your processed structures.
 ### Analyzing Results and Generating Plots

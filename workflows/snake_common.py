@@ -48,12 +48,30 @@ except ValueError:
 if GLYCAN_BATCH_SIZE < 1:
     GLYCAN_BATCH_SIZE = NSTRUCT
 
+INITIAL_RELAX = ini[section].get("initial_relax", "false").strip().lower() == "true"
+# initial_relax_nstruct is read in scripts/run_initial_relax.sh (Rosetta -nstruct for relax only).
+
+# Same key as Nextflow local executor / Snakemake parallelism idea (config.ini nextflow_local_queue_size).
+try:
+    LOCAL_PARALLEL_ROSETTA = int(ini[section].get("nextflow_local_queue_size", "5").strip() or "5")
+except ValueError:
+    LOCAL_PARALLEL_ROSETTA = 5
+if LOCAL_PARALLEL_ROSETTA < 1:
+    LOCAL_PARALLEL_ROSETTA = 5
+
 # Single result directory per run: results/<pdb>_<glycan_model>/
 RESULT_DIR = os.path.join("results", f"{PDB_NAME}_{GLYCAN_MODEL}")
 POSITIONS_DIR = os.path.join(RESULT_DIR, "positions")
 POSITIONS_LIST = os.path.join(POSITIONS_DIR, "positions.txt")
 OUT_DIR = RESULT_DIR  # merged scores and analysis_output go here
 ANALYSIS_MARKER = os.path.join(RESULT_DIR, f".analysis_done_{RUN_LABEL}")
+
+# Optional FastRelax on the input PDB before masking; downstream steps use the best structure.
+# Same basename as input_files/{PDB_NAME}.pdb so scorefiles stay {PDB_NAME}_position....sc.
+INITIAL_RELAX_DIR = os.path.join(RESULT_DIR, "initial_relax")
+INITIAL_RELAX_BEST_PDB = os.path.join(INITIAL_RELAX_DIR, f"{PDB_NAME}.pdb")
+# Path passed to Rosetta masking, prepare_positions, and analysis (relaxed or original input).
+PIPELINE_PDB_PATH = INITIAL_RELAX_BEST_PDB if INITIAL_RELAX else PDB_PATH
 
 # Score file names based on PDB input name (instead of Full_run.sc)
 SCOREFILE_NAME = f"{PDB_NAME}.sc"

@@ -109,6 +109,39 @@ def read_scorefile_robust(filepath: str, debug: bool = False) -> pd.DataFrame:
     return df
 
 
+def sequon_type_from_final_sequence(seq: str, enhanced: bool = False):
+    """
+    Classify introduced sequon as NxS or NxT from scorefile ``final_sequence``.
+
+    Prefer a **5-residue** window: indices 0–4 with **N at index 2** (middle) and **S or T at index 4**
+    (last). If ``len(seq) >= 5``, the **last five characters** are used as the window (motif reported
+    at the end of the string). When ``enhanced`` is True (FxNxT / ``enhanced_mode``), **index 0 must be F**.
+
+    If ``len(seq) < 5``, falls back to legacy third + last residue (no F check).
+
+    Returns:
+        ``\"NxS\"``, ``\"NxT\"``, or ``None`` if the pattern does not match.
+    """
+    if not isinstance(seq, str) or len(seq) < 3:
+        return None
+
+    if len(seq) >= 5:
+        w = seq[-5:]
+        if enhanced and w[0].upper() != "F":
+            return None
+        if w[2].upper() == "N" and w[-1].upper() in ("S", "T"):
+            return f"Nx{w[-1].upper()}"
+        return None
+
+    # Short sequences: legacy (no leading F required; enhanced cannot validate Fx without 5-mer)
+    if enhanced:
+        return None
+    third, last = seq[2], seq[-1]
+    if third.upper() == "N" and last.upper() in ("S", "T"):
+        return f"Nx{last.upper()}"
+    return None
+
+
 # ---------------------------------------------------------------------------
 
 class DataProcessor:
@@ -227,19 +260,11 @@ class DataProcessor:
                 f"All {len(df_construct_filtered)} matched row(s) contained 'NPT' in final_sequence."
             )
 
-        # Determine sequon type for each position (for plotting different markers)
-        def get_sequon_type(seq):
-            """Extract sequon type (NxS or NxT) from final_sequence"""
-            if not isinstance(seq, str) or len(seq) < 3:
-                return None
-            third = seq[2]
-            last = seq[-1]
-            if third.upper() == "N" and last.upper() in ["S", "T"]:
-                return f"Nx{last.upper()}"
-            return None
-        
-        # Add sequon type to filtered_df
-        filtered_df['sequon_type'] = filtered_df['final_sequence'].apply(get_sequon_type)
+        # Majority sequon (NxS vs NxT) per position for plot markers — see sequon_type_from_final_sequence
+        _enhanced = motif == "FxNxT"
+        filtered_df["sequon_type"] = filtered_df["final_sequence"].apply(
+            lambda s: sequon_type_from_final_sequence(s, enhanced=_enhanced)
+        )
         
         result_df = filtered_df.groupby('new_desc', as_index=False).agg({
             'd_total_score': 'mean',

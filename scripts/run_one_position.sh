@@ -72,14 +72,6 @@ echo "Starting single-position run: $positions -> $job_output_dir (scorefile=$sc
 # Debug toggle (easy to remove): set GLASS_MASKING_DEBUG=1 to print more info.
 GLASS_MASKING_DEBUG="${GLASS_MASKING_DEBUG:-0}"
 
-# Failure marker(s) used by Snakemake to decide whether to retry this job on reruns.
-# - Non-batch: FAILED
-# - Batch:     FAILED_batch<batch_id>
-FAILED_MARKER="${job_output_dir}/FAILED"
-if [[ -n "$batch_id" && "$batch_id" =~ ^[0-9]+$ ]]; then
-    FAILED_MARKER="${job_output_dir}/FAILED_batch${batch_id}"
-fi
-
 # Determine expected scorefile path early.
 scorefile_path="${job_output_dir}/${scorefile_name}"
 
@@ -97,27 +89,11 @@ is_placeholder_scorefile() {
     [[ "$l1" == "SEQUENCE" && "$l2" == "SCORE" ]]
 }
 
-# If a real scorefile already exists, do not rerun Rosetta (prevents overwrite errors).
-# Also clear any stale failure marker.
-if [[ -f "${scorefile_path}" && ! -f "${FAILED_MARKER}" ]]; then
-    [[ "${GLASS_MASKING_DEBUG}" == "1" ]] && echo "[DEBUG] Scorefile exists and no failure marker; skipping Rosetta: ${scorefile_path}" >&2
+# If a non-placeholder scorefile already exists, do not rerun Rosetta.
+if [[ -f "${scorefile_path}" ]] && ! is_placeholder_scorefile "${scorefile_path}"; then
+    [[ "${GLASS_MASKING_DEBUG}" == "1" ]] && echo "[DEBUG] Scorefile exists; skipping Rosetta: ${scorefile_path}" >&2
     echo "Done (cached): ${scorefile_path}"
     exit 0
-fi
-
-# If a failure marker exists but the scorefile is already real (not placeholder),
-# treat it as success and clear the marker (stale marker from older runs).
-if [[ -f "${FAILED_MARKER}" && -f "${scorefile_path}" ]] && ! is_placeholder_scorefile "${scorefile_path}"; then
-    [[ "${GLASS_MASKING_DEBUG}" == "1" ]] && echo "[DEBUG] Stale failure marker detected; real scorefile exists. Clearing marker: ${FAILED_MARKER}" >&2
-    rm -f "${FAILED_MARKER}"
-    echo "Done (cached): ${scorefile_path}"
-    exit 0
-fi
-
-# If we are retrying after failure and only a placeholder exists, remove it so Rosetta can write.
-if [[ -f "${FAILED_MARKER}" ]] && is_placeholder_scorefile "${scorefile_path}"; then
-    [[ "${GLASS_MASKING_DEBUG}" == "1" ]] && echo "[DEBUG] Retrying failed job; removing placeholder: ${scorefile_path}" >&2
-    rm -f "${scorefile_path}"
 fi
 
 # Determine container backend from config (docker or apptainer); default to docker.
@@ -187,16 +163,13 @@ if [[ "${GLASS_MASKING_DEBUG}" == "1" ]]; then
     echo "[DEBUG] Expected scorefile: ${scorefile_path}" >&2
 fi
 
-# If Rosetta failed (e.g. filter did not pass) OR scorefile is missing,
-# create a minimal valid placeholder and a failure marker.
-# This keeps Snakemake moving forward, while enabling reruns to selectively retry failures.
+# If Rosetta exited non-zero OR the expected scorefile is missing, write a placeholder.
+# We do not create FAILED markers anymore.
 if [[ "${rosetta_exit_code}" -ne 0 || ! -f "${scorefile_path}" ]]; then
-    echo "[WARN] Glycan masking failed for positions='${positions}' (batch_id='${batch_id:-}'), creating placeholder + failure marker. Check ${LOG_FILE}" >&2
-    printf "SEQUENCE\nSCORE\n" > "${scorefile_path}"
-    : > "${FAILED_MARKER}"
-else
-    # Success: remove any previous failure marker(s) for this job.
-    rm -f "${FAILED_MARKER}"
+    echo "[WARN] Glycan masking did not produce a valid scorefile for positions='${positions}' (batch_id='${batch_id:-}'). Writing placeholder. Check ${LOG_FILE}" >&2
+    if [[ ! -f "${scorefile_path}" ]]; then
+        printf "SEQUENCE\nSCORE\n" > "${scorefile_path}"
+    fi
 fi
 
 echo "Done: ${scorefile_path}"

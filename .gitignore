@@ -14,6 +14,9 @@
 ############################################################
 !README.md
 !run_glass_snakemake.sh
+!run_glass_nextflow.sh
+!environments/
+!environments/**
 
 ############################################################
 # Allow config, workflows, scripts, analysis, tests, input_files, requirements
@@ -43,6 +46,8 @@
 ############################################################
 results/
 .snakemake/
+.nextflow/
+.nextflow_work/
 logs/
 *out*
 

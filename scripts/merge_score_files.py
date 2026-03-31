@@ -80,8 +80,14 @@ def main():
         frames.append(df)
 
     if not frames:
-        sys.stderr.write("No data read from any input file.\n")
-        sys.exit(1)
+        # All inputs were empty / placeholders (e.g. Rosetta filter failures).
+        # Write a minimal placeholder so downstream steps can proceed using any
+        # successful positions that exist elsewhere.
+        sys.stderr.write("No data read from any input file; writing empty placeholder scorefile.\n")
+        with open(out_path, "w") as outf:
+            outf.write("SEQUENCE\n")
+            outf.write("SCORE\n")
+        sys.exit(0)
 
     # Align columns: union of all columns, fill missing with empty string to keep
     # whitespace-separated format consistent

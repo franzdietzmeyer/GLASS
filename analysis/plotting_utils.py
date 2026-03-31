@@ -244,17 +244,19 @@ class PlottingUtils:
             result_df.loc[result_df['glycan_pos'].isin(removed_positions), 'color'] = 'Too close to wt glycan'
             result_df.loc[result_df['glycan_pos'].isin(removed_positions), 'marker'] = 'X'
             
-            # Determine marker for introduced motifs based on sequon type (only when motif is NxS/T)
-            if motif == 'NxS/T' and 'sequon_type' in result_df.columns:
-                # For introduced positions (not wild-type, not removed), use sequon_type to determine marker
+            # Marker by majority sequon (NxS vs NxT) from final_sequence when sequon_type is present
+            # (NxS/T, FxNxT, etc.; see data_processing.sequon_type_from_final_sequence)
+            if 'sequon_type' in result_df.columns:
                 introduced_mask = ~result_df['glycan_pos'].isin(glycan_positions) & ~result_df['glycan_pos'].isin(removed_positions)
-                
                 for idx in result_df[introduced_mask].index:
                     sequon_type = result_df.loc[idx, 'sequon_type']
-                    if sequon_type == 'NxS':
+                    if pd.isna(sequon_type):
+                        continue
+                    st = str(sequon_type).strip()
+                    if st == 'NxS':
                         result_df.loc[idx, 'color'] = 'Introduced NxS'
                         result_df.loc[idx, 'marker'] = 's'  # Square
-                    elif sequon_type == 'NxT':
+                    elif st == 'NxT':
                         result_df.loc[idx, 'color'] = 'Introduced NxT'
                         result_df.loc[idx, 'marker'] = 'o'  # Circle
             
@@ -291,7 +293,7 @@ class PlottingUtils:
         plt.xticks(rotation=45)
         
         # Apply standardized tick label formatting
-        self.format_tick_labels(ax, x_bold=True, y_bold=False)
+        self.format_tick_labels(ax, x_bold=True, y_bold=True)
         
         # Add reference lines and shading
         # Calculate cutoff: if wild-type glycans exist, use their minimum y-value, otherwise use quantile
@@ -503,7 +505,7 @@ class PlottingUtils:
         # Apply standardized formatting
         self.format_axes_labels(ax, "Position", f"{ptm_column} (consensus)")
         self.format_title(ax, "Consensus PTM Prediction Score by Position", name_label)
-        self.format_tick_labels(ax, x_bold=True, y_bold=False)
+        self.format_tick_labels(ax, x_bold=True, y_bold=True)
         self.apply_standard_grid(ax, axis='y')
 
         # Create standardized legend

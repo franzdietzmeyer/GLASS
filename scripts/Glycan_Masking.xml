@@ -52,7 +52,7 @@
 	</FILTERS>
 	<MOVERS>
         	# Insert the default sequon motif
-        	<CreateGlycanSequonMover name="motif_creator" basic_enhanced_n_sequon="%%enhanced%%" residue_selector="select" scorefxn="beta"/>
+        	<CreateGlycanSequonMover name="motif_creator" basic_enhanced_n_sequon="%%enhanced%%" residue_selector="select" design_neighbors="False" scorefxn="beta"/>
 
         	# Run different metrics to add to the scorefile for later analysis
         	<RunSimpleMetrics name="pre_metrics" metrics="sasa,total_energy,sequence" prefix="native_"/>

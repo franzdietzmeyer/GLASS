@@ -3,6 +3,10 @@ from snake_common import (
     PDB_NAME,
     GLYCAN_MODEL,
     PDB_PATH,
+    PIPELINE_PDB_PATH,
+    INITIAL_RELAX,
+    LOCAL_PARALLEL_ROSETTA,
+    INITIAL_RELAX_BEST_PDB,
     RUN_LABEL,
     SNAKEMAKE_DEBUG,
     RESULT_DIR,
@@ -24,8 +28,12 @@ if GLYCAN_MODEL != "no_glycans":
 wildcard_constraints:
     position_id = r"[\d_]+"
 
-ruleorder:
-    prepare_positions > glycan_masking > merge_scores > analyze
+if INITIAL_RELAX:
+    ruleorder:
+        initial_relax > prepare_positions > glycan_masking > merge_scores > analyze
+else:
+    ruleorder:
+        prepare_positions > glycan_masking > merge_scores > analyze
 
 
 rule all:
@@ -33,26 +41,27 @@ rule all:
         ANALYSIS_MARKER
 
 
-RUN_TOKEN = os.path.join(RESULT_DIR, ".run_token")
-
-
-def _retry_token_if_failed(wildcards):
-    """
-    Only add RUN_TOKEN as an input if this position previously failed.
-
-    If a previous run created a placeholder scorefile plus a FAILED marker, the
-    presence of RUN_TOKEN forces Snakemake to rerun this job on the next invocation.
-    """
-    failed_marker = os.path.join(
-        RESULT_DIR, "out_by_position", wildcards.position_id, "FAILED"
-    )
-    return RUN_TOKEN if os.path.exists(failed_marker) else []
+if INITIAL_RELAX:
+    rule initial_relax:
+        input:
+            pdb=PDB_PATH,
+            config=CONFIG_INI,
+            script="scripts/run_initial_relax.sh",
+            pick="scripts/pick_best_relaxed_pdb.py",
+        output:
+            INITIAL_RELAX_BEST_PDB,
+        threads: LOCAL_PARALLEL_ROSETTA
+        resources:
+            runtime=2880,
+            mem_mb=16000,
+        shell:
+            "bash scripts/run_initial_relax.sh {input.pdb} {input.config} {output}"
 
 
 checkpoint prepare_positions:
     input:
         CONFIG_INI,
-        PDB_PATH,
+        pdb=PIPELINE_PDB_PATH,
         "scripts/prepare_positions.sh",
         "scripts/run_prepare_positions.sh",
     output:
@@ -63,15 +72,14 @@ checkpoint prepare_positions:
         debug = SNAKEMAKE_DEBUG,
     threads: 1
     shell:
-        "bash scripts/run_prepare_positions.sh {params.dir} {params.debug}"
+        "bash scripts/run_prepare_positions.sh {params.dir} {params.debug} {input.pdb}"
 
 
 rule glycan_masking:
     input:
-        pdb = ancient(PDB_PATH),
+        pdb = ancient(PIPELINE_PDB_PATH),
         config = CONFIG_INI,
         script = "scripts/run_glycan_masking.sh",
-        token = _retry_token_if_failed,
     output:
         scorefile = os.path.join(RESULT_DIR, "out_by_position", "{position_id}", f"{PDB_NAME}_position{{position_id}}.sc"),
     params:
@@ -127,7 +135,7 @@ rule analyze:
     input:
         scorefile = os.path.join(OUT_DIR, SCOREFILE_NAME),
         config = CONFIG_INI,
-        pdb = PDB_PATH,
+        pdb = PIPELINE_PDB_PATH,
         script = "scripts/run_analysis.sh",
     output:
         ANALYSIS_MARKER,

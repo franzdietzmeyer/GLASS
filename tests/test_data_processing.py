@@ -4,7 +4,7 @@ Unit tests for data_processing module.
 import tempfile
 import pytest
 
-from data_processing import read_scorefile_robust
+from data_processing import read_scorefile_robust, sequon_type_from_final_sequence
 
 
 def _write_score_file(path: str, header: str, *data_lines: str) -> None:
@@ -66,3 +66,29 @@ class TestReadScorefileRobust:
     def test_raises_on_missing_file(self):
         with pytest.raises(FileNotFoundError):
             read_scorefile_robust("/nonexistent/path/score.sc", debug=False)
+
+
+class TestSequonTypeFromFinalSequence:
+    """Tests for sequon_type_from_final_sequence (5-mer window + FxNxT when enhanced)."""
+
+    def test_five_mer_nxt(self):
+        assert sequon_type_from_final_sequence("ABNCT", enhanced=False) == "NxT"
+        assert sequon_type_from_final_sequence("prefixABNCT", enhanced=False) == "NxT"
+
+    def test_five_mer_nxs(self):
+        assert sequon_type_from_final_sequence("ABNCS", enhanced=False) == "NxS"
+
+    def test_enhanced_requires_leading_f_in_window(self):
+        assert sequon_type_from_final_sequence("FANST", enhanced=True) == "NxT"
+        assert sequon_type_from_final_sequence("xxFANST", enhanced=True) == "NxT"
+        assert sequon_type_from_final_sequence("GANST", enhanced=True) is None
+
+    def test_short_sequence_legacy_no_enhanced(self):
+        assert sequon_type_from_final_sequence("ABNT", enhanced=False) == "NxT"
+
+    def test_short_sequence_enhanced_returns_none(self):
+        assert sequon_type_from_final_sequence("ABNT", enhanced=True) is None
+
+    def test_invalid_returns_none(self):
+        assert sequon_type_from_final_sequence("", enhanced=False) is None
+        assert sequon_type_from_final_sequence("ABC", enhanced=False) is None
