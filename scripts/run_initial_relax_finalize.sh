@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# After all initial_relax shards: locate score.sc, pick best PDB, write output and initial_relax_chosen.txt.
+# After all initial_relax replicates: locate score.sc, pick best PDB, write output and initial_relax_chosen.txt.
 # Usage: run_initial_relax_finalize.sh <config.ini> <out_dir> <output_best_pdb>
 #
 # DEBUG: GLASS_INITIAL_RELAX_DEBUG=1 — verbose shell.
@@ -22,6 +22,21 @@ fi
 [[ "${GLASS_INITIAL_RELAX_DEBUG:-0}" == "1" ]] && set -x
 
 mkdir -p "$out_dir"
+
+read_ini_value() {
+    local key="$1"
+    local file="$2"
+    grep -m1 -E "^${key}[[:space:]]*=" "$file" 2>/dev/null | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || true
+}
+
+# Match run_initial_relax_replicate.sh: default r_ when key missing; empty value disables prefix handling in pick_best.
+if grep -qE '^[[:space:]]*initial_relax_out_prefix[[:space:]]*=' "$config" 2>/dev/null; then
+    out_prefix="$(read_ini_value "initial_relax_out_prefix" "$config")"
+else
+    out_prefix="r_"
+fi
+export GLASS_INITIAL_RELAX_OUT_PREFIX="${out_prefix}"
+[[ "${GLASS_INITIAL_RELAX_DEBUG:-0}" == "1" ]] && echo "[DEBUG] GLASS_INITIAL_RELAX_OUT_PREFIX=${GLASS_INITIAL_RELAX_OUT_PREFIX:-<empty>}" >&2
 
 scorefile_basename="score.sc"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

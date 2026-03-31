@@ -8,16 +8,9 @@ This repository hosts the computational models, analysis scripts, and data assoc
 
 ## Table of Contents
 
-* [Project Overview](#project-overview)
-* [Repository Structure](#repository-structure)
 * [Setup and Installation](#setup-and-installation)
-* [Usage Guide: Reproducing Paper Results](#usage-guide-reproducing-paper-results)
-    * [Input Data](#input-data)
-    * [Running the Models](#running-the-models)
-    * [Analyzing Results and Generating Plots](#analyzing-results-and-generating-plots)
-    * [Output Data](#output-data)
-* [Limitations](#limitations)
-* [Contributing](#contributing)
+* [Usage](#usage)
+* [Retrieve Results](#retrieve-results)
 * [License](#license)
 * [Contact](#contact)
 
@@ -133,98 +126,55 @@ nstruct = 5
 
 ### 3. Run the Pipeline
 
-Run the pipeline via the Snakemake workflow (local or HPC/Slurm):
+The entrypoint is **`./run_glass_nextflow.sh`** (Nextflow). It reads `config/config.ini` and runs:
 
-The Snakemake-based entrypoint is `run_glass_snakemake.sh` at the repository root.
-It runs the GLASS workflow via Snakemake with two internal variants:
+1. **Optional initial relax** (if `initial_relax = true`) — parallel replicates + finalize to pick the best structure. Use this if the used model was not previously relaxed using Rosetta. For example when using predicted structures or Em/Xray structures directly.
+2. **Prepare positions** — from `position_ranges` and the PDB.
+3. **Glycan masking** — `glycan_model = no_glycans` or `glycans` (with batching when `glycan_model = glycans`, using `glycan_batch_size`).
+4. **Merge scores and analysis** — Rosetta masking uses `errorStrategy 'ignore'` so partial failures can still merge and analyze when scorefiles exist.
 
-- `workflows/Snakefile_no_glycans` when `glycan_model = no_glycans` (no batching).
-- `workflows/Snakefile_glycans` when `glycan_model = glycans` (batched Rosetta jobs,
-  controlled by `glycan_batch_size`).
+**Prerequisites:** minimal conda env for Nextflow + Java, and the project venv for Python/PyRosetta (same split as below):
 
-The workflow runs in three main steps:
-
-1. **Identify positions from config.ini (and PDB)** — Determines which positions to run.
-2. **Run glycan masking in parallel (local or HPC)** — One or more Rosetta jobs per position
-   (multiple batches when `glycan_model = glycans`).
-3. **Run the analysis once** — After all masking jobs have finished and their scorefiles
-   have been merged into a single `{pdb_name}.sc` (e.g. `Hk6a_E2c3_AR3A_example.sc`).
-
-From the repository root:
-
-```bash
-# Local run using the built-in local profile
-./run_glass_snakemake.sh local
-
-# Slurm run using the Slurm profile
-./run_glass_snakemake.sh slurm
-
-# On HPC, run_glass_snakemake.sh uses an absolute path for --directory
-# to avoid "Permission denied" when the job cwd is /var/spool/slurmd/... (cluster-dependent).
-
-# (Optional) Dry-run to see the planned steps without executing them
-./run_glass_snakemake.sh local --dry-run
-```
-
-The Snakemake wrapper reads experiment settings from:
-
-- `config/config.ini` (INI used by the workflow to determine PDB, glycan_model, batching, etc.)
-
-To enable DEBUG-style verbosity at the workflow level, set:
-
-```bash
-export GLASS_SNAKEMAKE_DEBUG=1
-./run_glass_snakemake.sh local
-```
-
-This will print the full Snakemake command being executed. You can
-disable it again by unsetting the variable or closing the shell.
-
-#### Nextflow (optional, partial-failure tolerant)
-
-An additive Nextflow driver is available as `run_glass_nextflow.sh`. It uses the same
-`config/config.ini`, `scripts/`, and analysis steps as Snakemake, but schedules Rosetta
-with `errorStrategy 'ignore'` and merges **existing** per-position scorefiles so downstream
-merge and analysis can still run when some jobs fail.
-
-1. **Minimal conda env (Nextflow + Java only)** — keeps the JVM stack separate from Python:
+1. **Conda env (Nextflow + Java only):**
 
    ```bash
    mamba env create -n glass-nextflow -f environments/nextflow.yml
    mamba activate glass-nextflow
    ```
 
-2. **Project Python with uv** (same pattern as [Environment](#environment) above): a `venv/GLASS` env with
-   `uv pip install -r requirements/requirements.txt` and PyRosetta. **Do not** install Python packages
-   into the Nextflow conda env.
+2. **Project Python with uv** (see [Environment](#environment)): `venv/GLASS` with `uv pip install -r requirements/requirements.txt` and PyRosetta. Do not install GLASS Python deps into the Nextflow conda env.
 
-3. **PATH — both tools must be visible**: `nextflow` comes from conda; `python` and your packages come
-   from the uv venv. Activate **conda first**, then the venv (order matters so `python` is the venv’s):
+3. **PATH:** activate **conda first**, then the venv so both `nextflow` and `python` resolve correctly:
 
    ```bash
    mamba activate glass-nextflow
    source venv/GLASS/bin/activate
    ```
 
-   If you only activate the venv (e.g. in a batch script), `nextflow` may be missing. Either activate
-   conda in that job, or point the launcher at the conda env:
+   Or set `GLASS_NEXTFLOW_CONDA_PREFIX` to the conda env path if you only `source` the venv in a batch job.
 
-   ```bash
-   export GLASS_NEXTFLOW_CONDA_PREFIX="$HOME/mambaforge/envs/glass-nextflow"   # adjust to your install
-   ./run_glass_nextflow.sh local
-   ```
-
-   `run_glass_nextflow.sh` prepends `GLASS_NEXTFLOW_CONDA_PREFIX/bin` (or `CONDA_PREFIX/bin` when
-   `nextflow` exists there) to `PATH` so Nextflow is found without mixing Python stacks.
-
-4. Run from the repository root:
+4. **Run** from the repository root:
 
    ```bash
    ./run_glass_nextflow.sh local
    ./run_glass_nextflow.sh slurm
+   ./run_glass_nextflow.sh local --config /abs/path/to/config.ini
    ./run_glass_nextflow.sh local -resume
    ```
 
+   To print the resolved Nextflow command: `export GLASS_NEXTFLOW_DEBUG=1`.
+
+**Where to tune local vs Slurm**
+
+| What | Where |
+|------|--------|
+| PDB, positions, glycan mode, nstruct, batching, containers, `nextflow_local_queue_size` | `config/config.ini` |
+| Slurm walltime/memory/partition/extra `sbatch` flags | `config/config.ini` (`nextflow_slurm_*`) and/or `workflows/nextflow/conf/slurm.config` for site-wide defaults |
+| Local concurrency and Rosetta RAM on laptop | `config/config.ini` + `workflows/nextflow/conf/local.config` |
+
+See `workflows/nextflow/conf/README.md` for profile files. **HPC:** compute nodes often lack Docker; use `container_backend = apptainer` and `rosetta_apptainer_image` to a `.sif` on shared storage.
+
+**Previous Snakemake workflows** were removed in favor of Nextflow; older reproducibility commands can be recovered from git history if needed.
 
 ## Retrieve Results
 A `results/` folder will be generated containing your processed structures.
@@ -237,7 +187,7 @@ The analysis is **automatically integrated** into the main pipeline and runs aft
 The analysis runs automatically when you execute the main pipeline:
 
 ```bash
-./run_glass_snakemake.sh local
+./run_glass_nextflow.sh local
 ```
 
 This will:

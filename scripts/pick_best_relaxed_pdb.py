@@ -3,6 +3,12 @@
 Select the lowest-energy structure from a Rosetta scorefile and copy its PDB to a target path.
 
 Expects standard Rosetta scorefile lines beginning with SCORE: and columns total_score and description.
+
+When relax was run with -out:prefix, PDBs may be named <prefix><description>.pdb while the scorefile
+description column may omit the prefix. If GLASS_INITIAL_RELAX_OUT_PREFIX is set (e.g. by
+run_initial_relax_finalize.sh from config initial_relax_out_prefix), we try <desc>.pdb first, then
+<prefix><desc>.pdb when the first path is missing.
+
 DEBUG: set environment GLASS_PICK_BEST_RELAX_DEBUG=1 for stderr diagnostics.
 """
 from __future__ import annotations
@@ -59,6 +65,23 @@ def parse_best_description(scorefile: str) -> tuple[str, float]:
     return best_desc, best_ts
 
 
+def resolve_decoy_pdb_path(pdb_dir: str, desc: str) -> str:
+    """Return absolute path to the decoy PDB matching scorefile *description*."""
+    cand = os.path.join(pdb_dir, f"{desc}.pdb")
+    if os.path.isfile(cand):
+        return cand
+
+    prefix = os.environ.get("GLASS_INITIAL_RELAX_OUT_PREFIX", "")
+    prefix = prefix.strip()
+    if prefix and not desc.startswith(prefix):
+        prefixed = os.path.join(pdb_dir, f"{prefix}{desc}.pdb")
+        if os.path.isfile(prefixed):
+            _debug(f"using prefixed decoy: {prefixed!r} (prefix={prefix!r})")
+            return prefixed
+
+    raise SystemExit(f"Expected PDB not found: {cand}")
+
+
 def main() -> None:
     if len(sys.argv) != 4:
         print(
@@ -71,9 +94,7 @@ def main() -> None:
     desc, ts = parse_best_description(scorefile)
     _debug(f"best description={desc!r} total_score={ts}")
 
-    candidate = os.path.join(pdb_dir, f"{desc}.pdb")
-    if not os.path.isfile(candidate):
-        raise SystemExit(f"Expected PDB not found: {candidate}")
+    candidate = resolve_decoy_pdb_path(pdb_dir, desc)
 
     out_dir = os.path.dirname(os.path.abspath(out_pdb))
     if out_dir:
@@ -88,6 +109,8 @@ def main() -> None:
         sf.write("# Selected by lowest total_score in the scorefile.\n")
         sf.write(f"chosen_description: {desc}\n")
         sf.write(f"total_score: {ts}\n")
+        _op = os.environ.get("GLASS_INITIAL_RELAX_OUT_PREFIX", "")
+        sf.write(f"initial_relax_out_prefix: {_op!r}\n")
         sf.write(f"source_decoy_pdb: {os.path.abspath(candidate)}\n")
         sf.write(f"pipeline_pdb: {os.path.abspath(out_pdb)}\n")
         sf.write(f"scorefile: {os.path.abspath(scorefile)}\n")

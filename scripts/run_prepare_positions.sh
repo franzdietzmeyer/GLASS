@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prepare position files for Snakemake. Called by Snakemake rule prepare_positions.
+# Prepare position files for the pipeline. Called by Nextflow PREPARE_POSITIONS.
 # Usage: run_prepare_positions.sh <positions_dir> [debug] [pdb_path]
 # Optional pdb_path: structure used for chain check and position parsing (e.g. initial_relax output).
 set -euo pipefail

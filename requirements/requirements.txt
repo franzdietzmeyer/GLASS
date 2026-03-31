@@ -8,6 +8,4 @@ seaborn>=0.11.0
 adjustText>=0.7
 biotite
 biopython>=1.79
-snakemake>=9.17.1
 pytest>=7.0.0
-snakemake-executor-plugin-slurm

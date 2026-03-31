@@ -2,7 +2,7 @@
 # Postprocess existing GLASS outputs (merge + analysis)
 # ====================================================
 #
-# This script is meant as a robust fallback when some Rosetta/Snakemake jobs fail.
+# This script is meant as a robust fallback when some Rosetta / Nextflow masking jobs fail.
 # It merges *whatever per-position scorefiles exist* and contain data, then runs
 # the standard GLASS analysis on the merged scorefile.
 #
@@ -51,6 +51,39 @@ if [[ -z "$pdb_name" || -z "$glycan_model" ]]; then
   exit 1
 fi
 
+read_ini_value() {
+  local key="$1"
+  local file="$2"
+  grep -m1 -E "^${key}[[:space:]]*=" "$file" 2>/dev/null | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || true
+}
+
+initial_relax="$(read_ini_value "initial_relax" "$CONFIG_FILE")"
+initial_relax="${initial_relax,,}"
+[[ "$initial_relax" == "true" ]] || initial_relax="false"
+
+if grep -qE '^[[:space:]]*initial_relax_out_prefix[[:space:]]*=' "$CONFIG_FILE" 2>/dev/null; then
+  ir_prefix="$(read_ini_value "initial_relax_out_prefix" "$CONFIG_FILE")"
+else
+  ir_prefix="r_"
+fi
+
+# Match workflows/nextflow/glass_config_json.py: stem for score/PDB basenames after initial relax.
+if [[ "$initial_relax" == "true" ]]; then
+  if [[ -n "$ir_prefix" ]]; then
+    if [[ "$pdb_name" == "$ir_prefix"* ]]; then
+      workflow_stem="$pdb_name"
+    else
+      workflow_stem="${ir_prefix}${pdb_name}"
+    fi
+  else
+    workflow_stem="$pdb_name"
+  fi
+  REL_PDB_PATH="results/${pdb_name}_${glycan_model}/initial_relax/${workflow_stem}.pdb"
+else
+  workflow_stem="$pdb_name"
+  REL_PDB_PATH="input_files/${pdb_name}.pdb"
+fi
+
 RESULT_DIR="$GLASS_ROOT/results/${pdb_name}_${glycan_model}"
 OUT_BY_POS="$RESULT_DIR/out_by_position"
 
@@ -58,8 +91,7 @@ OUT_BY_POS="$RESULT_DIR/out_by_position"
 # because it cd's into analysis/ and prefixes paths with ../.
 REL_RESULT_DIR="results/${pdb_name}_${glycan_model}"
 REL_OUT_BY_POS="${REL_RESULT_DIR}/out_by_position"
-REL_PDB_PATH="input_files/${pdb_name}.pdb"
-REL_MERGED_SCOREFILE="${REL_RESULT_DIR}/${pdb_name}.sc"
+REL_MERGED_SCOREFILE="${REL_RESULT_DIR}/${workflow_stem}.sc"
 REL_ANALYSIS_MARKER="${REL_RESULT_DIR}/.analysis_done_postprocess"
 
 if [[ ! -d "$OUT_BY_POS" ]]; then
@@ -68,7 +100,7 @@ if [[ ! -d "$OUT_BY_POS" ]]; then
   echo "Found merged scorefile at: $GLASS_ROOT/$REL_MERGED_SCOREFILE" >&2
   echo "Tip: If you want to analyze an already-merged scorefile, run:" >&2
   echo "  bash \"$GLASS_ROOT/scripts/run_analysis.sh\" \"$CONFIG_FILE\" \"$REL_MERGED_SCOREFILE\" \"$REL_PDB_PATH\" \\" >&2
-  echo "    \"$pdb_name\" \"$REL_ANALYSIS_MARKER\" \"$REL_RESULT_DIR\"" >&2
+  echo "    \"$workflow_stem\" \"$REL_ANALYSIS_MARKER\" \"$REL_RESULT_DIR\"" >&2
   exit 1
 fi
 
@@ -91,7 +123,7 @@ valid_per_position_sc=()
 placeholder_count=0
 
 # Collect per-position merged scorefiles (exclude batch scorefiles).
-candidate_scorefiles=("$OUT_BY_POS"/*/"${pdb_name}"_position*.sc)
+candidate_scorefiles=("$OUT_BY_POS"/*/"${workflow_stem}"_position*.sc)
 
 for f in "${candidate_scorefiles[@]}"; do
   # Skip batch files (we want per-position merged, not per-batch)
@@ -118,7 +150,7 @@ if [[ "${#valid_per_position_sc[@]}" -eq 0 ]]; then
     echo "Tip: inspect one of the per-position run logs under: $OUT_BY_POS/<position>/run.log" >&2
   else
     echo "Error: No per-position scorefiles found under: $OUT_BY_POS" >&2
-    echo "Tip: run Snakemake first or check whether Rosetta produced any usable .sc files." >&2
+    echo "Tip: run the Nextflow pipeline first or check whether Rosetta produced any usable .sc files." >&2
   fi
   exit 1
 fi
@@ -131,7 +163,7 @@ python3 "scripts/merge_score_files.py" "$REL_MERGED_SCOREFILE" "${valid_per_posi
 
 echo "[GLASS] Running analysis using merged scorefile." >&2
 bash "scripts/run_analysis.sh" "$CONFIG_FILE" "$REL_MERGED_SCOREFILE" "$REL_PDB_PATH" \
-  "$pdb_name" "$REL_ANALYSIS_MARKER" "$REL_RESULT_DIR"
+  "$workflow_stem" "$REL_ANALYSIS_MARKER" "$REL_RESULT_DIR"
 
 echo "[GLASS] Done. Marker: $GLASS_ROOT/$REL_ANALYSIS_MARKER" >&2
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Front-end launcher for the GLASS Nextflow workflow (additive to Snakemake).
+# Front-end launcher for the GLASS Nextflow workflow (sole pipeline driver).
 # =============================================================================
 #
 # Prerequisites (recommended split — see README “Nextflow”):
@@ -25,6 +25,8 @@
 #   GLASS_NEXTFLOW_LOG_STDOUT=1     — disable tee to log files (interactive debugging)
 #   GLASS_NEXTFLOW_WORKDIR=/path    — override Nextflow -work-dir (default: <repo>/.nextflow_work)
 #   GLASS_NEXTFLOW_CONDA_PREFIX=    — path to conda env with nextflow (if not on PATH)
+#   GLASS_NEXTFLOW_RUN_NAME=name    — optional Nextflow -name (omit by default so each run gets a unique auto name).
+#                                     If set, must match Nextflow: ^[a-z](?:[a-z\d]|[-_](?=[a-z\d])){0,79}$
 #
 
 echo "╔════════════════════════════════════════════════════════════════════════════════════════════════════════════╗"
@@ -104,7 +106,7 @@ elif [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/nextflow" ]]; then
 fi
 
 # -----------------------------------------------------------------------------
-# Logging (same spirit as run_glass_snakemake.sh)
+# Logging (timestamped logs under logs/)
 # -----------------------------------------------------------------------------
 LOG_DIR="${GLASS_NEXTFLOW_LOG_DIR:-$REPO_ROOT/logs}"
 mkdir -p "$LOG_DIR"
@@ -185,6 +187,10 @@ CMD=(
     "-work-dir" "$WORK_DIR"
     "-params-file" "$PARAMS_JSON"
 )
+# Avoid passing a fixed -name: Nextflow rejects reuse of the same run name; auto-generated names are unique.
+if [[ -n "${GLASS_NEXTFLOW_RUN_NAME:-}" ]]; then
+    CMD+=("-name" "$GLASS_NEXTFLOW_RUN_NAME")
+fi
 
 if [[ "${GLASS_NEXTFLOW_DEBUG:-0}" == "1" ]]; then
     echo "[DEBUG] CONFIG_ABS=$CONFIG_ABS"

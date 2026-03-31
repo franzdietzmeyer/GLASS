@@ -2,11 +2,11 @@
 # Optional pipeline step: FastRelax on input PDB, then keep the lowest total_score structure.
 # Usage: run_initial_relax.sh <input_pdb> <config.ini> <output_best_pdb>
 #
-# Legacy Snakemake path: launches N shards in parallel in this shell (bounded by nextflow_local_queue_size),
-# then runs finalize. Nextflow uses run_initial_relax_shard.sh + run_initial_relax_finalize.sh as separate tasks.
+# Legacy Snakemake path: launches N parallel replicates in this shell (bounded by nextflow_local_queue_size),
+# then runs finalize. Nextflow uses run_initial_relax_replicate.sh + run_initial_relax_finalize.sh as separate tasks.
 #
 # Reads config.ini:
-#   initial_relax_nstruct (N) — N shard launches; each Rosetta uses -nstruct N.
+#   initial_relax_nstruct (N) — N parallel replicates; each Rosetta uses -nstruct N.
 #   nextflow_local_queue_size — max concurrent relax docker/apptainer runs within this script.
 #
 # DEBUG: GLASS_INITIAL_RELAX_DEBUG=1 — verbose shell.
@@ -58,11 +58,11 @@ max_parallel="$(read_ini_value "nextflow_local_queue_size" "$config")"
 [[ -z "$max_parallel" || ! "$max_parallel" =~ ^[0-9]+$ || "$max_parallel" -lt 1 ]] && max_parallel=5
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SHARD_SCRIPT="${SCRIPT_DIR}/run_initial_relax_shard.sh"
+REPLICATE_SCRIPT="${SCRIPT_DIR}/run_initial_relax_replicate.sh"
 FINALIZE_SCRIPT="${SCRIPT_DIR}/run_initial_relax_finalize.sh"
 
-if [[ ! -f "$SHARD_SCRIPT" ]]; then
-    echo "Error: missing $SHARD_SCRIPT" >&2
+if [[ ! -f "$REPLICATE_SCRIPT" ]]; then
+    echo "Error: missing $REPLICATE_SCRIPT" >&2
     exit 1
 fi
 if [[ ! -f "$FINALIZE_SCRIPT" ]]; then
@@ -72,7 +72,7 @@ fi
 
 {
     echo "Initial relax (monolithic launcher): input=$input_pdb launches=${num_launches} each -nstruct ${nstruct_relax}"
-    echo "Max concurrent shard jobs=${max_parallel} (nextflow_local_queue_size)"
+    echo "Max concurrent replicate jobs=${max_parallel} (nextflow_local_queue_size)"
 } | tee -a "$log_file"
 
 # Parallel launches (bash job pool; requires bash 4.3+ for wait -n).
@@ -82,7 +82,7 @@ for ((i = 1; i <= num_launches; i++)); do
     while [[ $(jobs -p 2>/dev/null | wc -l) -ge max_parallel ]]; do
         wait -n || any_fail=1
     done
-    bash "$SHARD_SCRIPT" "$input_pdb" "$config" "$out_dir" >>"${log_file}.job${i}" 2>&1 &
+    bash "$REPLICATE_SCRIPT" "$input_pdb" "$config" "$out_dir" >>"${log_file}.job${i}" 2>&1 &
 done
 for pid in $(jobs -p); do
     wait "$pid" || any_fail=1
@@ -97,7 +97,7 @@ for ((i = 1; i <= num_launches; i++)); do
 done
 
 if [[ "$any_fail" -ne 0 ]]; then
-    echo "Error: one or more relax shards failed (see $log_file)" >&2
+    echo "Error: one or more initial_relax replicates failed (see $log_file)" >&2
     exit 1
 fi
 

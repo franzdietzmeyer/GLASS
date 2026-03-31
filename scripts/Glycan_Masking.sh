@@ -84,7 +84,7 @@ base_name="${base_name%.PDB}"
 output="${base_name}_out_$4"
 mkdir -p "$output"
 
-# Optional batching parameters (used only when called from batched glycans Snakefile)
+# Optional batching parameters (glycans batching mode via run_glycan_masking.sh)
 batch_id="${6:-}"
 batch_size="${7:-}"
 total_nstruct="${8:-$nstruct}"

@@ -1,7 +1,7 @@
 nextflow.enable.dsl = 2
 
 /*
- * GLASS Nextflow entry (additive; does not replace Snakemake).
+ * GLASS Nextflow entry — sole workflow driver.
  * Params are provided via -params-file from glass_config_json.py (see run_glass_nextflow.sh).
  *
  * Rosetta steps use errorStrategy 'ignore' and scripts end with || true so sibling jobs continue;
@@ -12,14 +12,14 @@ nextflow.enable.dsl = 2
  * Per-task logs under results/.../logs/: scripts/nextflow_copy_task_logs.sh (NF DSL cannot call top-level def helpers).
  */
 
-process INITIAL_RELAX_SHARD {
-    tag { "initial_relax_shard_${shard_id}" }
+process INITIAL_RELAX_REPLICATE {
+    tag { "initial_relax_replicate_${replicate_id}" }
     label 'rosetta'
     cpus 1
     afterScript = {
         def safe = task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')
         """
-        bash '${params.launch_dir}/scripts/nextflow_copy_task_logs.sh' '${params.launch_dir}' '${params.result_dir}' 'initial_relax_shard' '${safe}'
+        bash '${params.launch_dir}/scripts/nextflow_copy_task_logs.sh' '${params.launch_dir}' '${params.result_dir}' 'initial_relax_replicate' '${safe}'
         """.stripIndent()
     }
 
@@ -27,21 +27,21 @@ process INITIAL_RELAX_SHARD {
     params.initial_relax == true
 
     input:
-    val(shard_id)
+    val(replicate_id)
 
     script:
     def out_dir_rel = new File(params.pdb_path as String).parent ?: '.'
-    // shard_id only tags the Nextflow task; Rosetta command and paths are identical every time.
+    // replicate_id only labels the Nextflow task; each run uses the same Rosetta command and paths.
     """
     cd '${params.launch_dir}'
     export GLASS_CONFIG_INI='${params.config_ini_abs}'
-    bash scripts/run_initial_relax_shard.sh \\
+    bash scripts/run_initial_relax_replicate.sh \\
       '${params.input_pdb_path}' \\
       '${params.config_ini_abs}' \\
       '${out_dir_rel}'
     """
     output:
-    val(shard_id), emit: shard_done
+    val(replicate_id), emit: replicate_done
 }
 
 process INITIAL_RELAX_FINALIZE {
@@ -59,7 +59,7 @@ process INITIAL_RELAX_FINALIZE {
     params.initial_relax == true
 
     input:
-    val(shard_ids)
+    val(replicate_ids)
 
     script:
     def out_dir_rel = new File(params.pdb_path as String).parent ?: '.'
@@ -93,7 +93,7 @@ process PREPARE_POSITIONS {
     val _ready
 
     script:
-    def dbg = params.snakemake_debug ? 'True' : 'False'
+    def dbg = params.pipeline_debug ? 'True' : 'False'
     """
     cd '${params.launch_dir}'
     export GLASS_CONFIG_INI='${params.config_ini_abs}'
@@ -189,7 +189,7 @@ process GLYCAN_MERGE_POSITIONS {
     cd '${params.launch_dir}'
     bash scripts/nextflow_merge_glycan_positions.sh \\
       '${params.launch_dir}' \\
-      '${params.pdb_name}' \\
+      '${params.workflow_pdb_stem ?: params.pdb_name}' \\
       '${params.result_dir}' \\
       '${params.positions_list}'
     """
@@ -215,7 +215,7 @@ process GLOBAL_MERGE {
     cd '${params.launch_dir}'
     bash scripts/nextflow_merge_global.sh \\
       '${params.launch_dir}' \\
-      '${params.pdb_name}' \\
+      '${params.workflow_pdb_stem ?: params.pdb_name}' \\
       '${params.result_dir}' \\
       '${params.merged_score_path}'
     """
@@ -243,7 +243,7 @@ process ANALYZE {
       '${params.config_ini_abs}' \\
       '${params.merged_score_path}' \\
       '${params.pdb_path}' \\
-      '${params.pdb_name}' \\
+      '${params.workflow_pdb_stem ?: params.pdb_name}' \\
       '${params.analysis_marker}' \\
       '${params.out_dir}'
     """
@@ -258,9 +258,9 @@ process ANALYZE {
 workflow {
     main:
     if (params.initial_relax == true) {
-        ch_initial_shards = channel.from(1..params.initial_relax_nstruct)
-        INITIAL_RELAX_SHARD(ch_initial_shards)
-        INITIAL_RELAX_FINALIZE(INITIAL_RELAX_SHARD.out.shard_done.collect())
+        ch_initial_relax_replicates = channel.from(1..params.initial_relax_nstruct)
+        INITIAL_RELAX_REPLICATE(ch_initial_relax_replicates)
+        INITIAL_RELAX_FINALIZE(INITIAL_RELAX_REPLICATE.out.replicate_done.collect())
         // PREPARE must run only after the relaxed PDB exists (output path staged above).
         ch_after_relax = INITIAL_RELAX_FINALIZE.out.relaxed_pdb.map { true }
     } else {
