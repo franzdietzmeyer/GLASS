@@ -169,7 +169,7 @@ The entrypoint is **`./run_glass_nextflow.sh`** (Nextflow). It reads `config/con
 | What | Where |
 |------|--------|
 | PDB, positions, glycan mode, nstruct, batching, containers, `nextflow_local_queue_size` | `config/config.ini` |
-| Slurm walltime/memory/partition/extra `sbatch` flags | `config/config.ini` (`nextflow_slurm_*`) and/or `workflows/nextflow/conf/slurm.config` for site-wide defaults |
+| Slurm walltime/memory per label, partition, extra `sbatch` flags | `config/nextflow_slurm.ini` (optional; env `GLASS_NEXTFLOW_SLURM_INI` to relocate), plus `workflows/nextflow/conf/slurm.config` for site-wide executor settings; per-process overrides via `process.withName` (see `workflows/nextflow/conf/README.md`) |
 | Local concurrency and Rosetta RAM on laptop | `config/config.ini` + `workflows/nextflow/conf/local.config` |
 
 See `workflows/nextflow/conf/README.md` for profile files. **HPC:** compute nodes often lack Docker; use `container_backend = apptainer` and `rosetta_apptainer_image` to a `.sif` on shared storage.

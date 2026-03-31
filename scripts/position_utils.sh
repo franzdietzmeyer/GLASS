@@ -144,6 +144,35 @@ get_sequence_bounds() {
         awk 'NR==1{min=$1} {max=$1} END{print min, max}'
 }
 
+# Ordered PDB residue numbers for chain (N→C order = first ATOM occurrence per residue).
+# Needed because Rosetta PTM rejects sites within <4 residues of a terminus in *sequence* order,
+# not by numeric min/max PDB labels (non-consecutive numbering would mis-classify sites).
+get_chain_residue_order() {
+    local pdb_file="$1"
+    local chain="$2"
+    grep -E "^(ATOM|HETATM)" "$pdb_file" | \
+        awk -v ch="$chain" 'substr($0,22,1)==ch { print substr($0,23,4)+0 }' | \
+        awk '!seen[$0]++'
+}
+
+# Terminal if among first 4 or last 4 residues of the chain (1-based ordinal in get_chain_residue_order).
+is_terminal_position_seq() {
+    local pos="$1"
+    local -n ordered_ref="$2"
+    local L=${#ordered_ref[@]}
+    [[ "$L" -lt 9 ]] && return 0
+    local i
+    for ((i = 0; i < L; i++)); do
+        if [[ "${ordered_ref[$i]}" == "$pos" ]]; then
+            local ord=$((i + 1))
+            [[ "$ord" -le 4 ]] && return 0
+            [[ "$ord" -ge $((L - 3)) ]] && return 0
+            return 1
+        fi
+    done
+    return 1
+}
+
 is_terminal_position() {
     local pos="$1"
     local min_pos="$2"

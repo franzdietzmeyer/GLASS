@@ -10,11 +10,17 @@ nextflow.enable.dsl = 2
  * DEBUG: GLASS_NEXTFLOW_DEBUG=1 in the environment (see scripts and launcher).
  *
  * Per-task logs under results/.../logs/: scripts/nextflow_copy_task_logs.sh (NF DSL cannot call top-level def helpers).
+ *
+ * Resource labels (see workflows/nextflow/nextflow.config and conf/slurm.config):
+ *   rosetta_initial_relax — FastRelax replicate (container).
+ *   rosetta_nogly         — glycan masking, no_glycans mode.
+ *   rosetta_glycans       — glycan masking, glycans batch mode.
+ *   nf_light              — prepare_positions, finalize, merges, analysis.
  */
 
 process INITIAL_RELAX_REPLICATE {
     tag { "initial_relax_replicate_${replicate_id}" }
-    label 'rosetta'
+    label 'rosetta_initial_relax'
     cpus 1
     afterScript = {
         def safe = task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')
@@ -46,7 +52,7 @@ process INITIAL_RELAX_REPLICATE {
 
 process INITIAL_RELAX_FINALIZE {
     tag 'initial_relax_finalize'
-    label 'rosetta'
+    label 'nf_light'
     cpus 1
     afterScript = {
         def safe = task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')
@@ -81,6 +87,7 @@ process INITIAL_RELAX_FINALIZE {
 
 process PREPARE_POSITIONS {
     tag 'prepare_positions'
+    label 'nf_light'
     cpus 1
     afterScript = {
         def safe = task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')
@@ -105,7 +112,7 @@ process PREPARE_POSITIONS {
 }
 
 process GLYCAN_MASKING_NOGLY {
-    label 'rosetta'
+    label 'rosetta_nogly'
     cpus 1
     errorStrategy 'ignore'
     maxRetries 0
@@ -137,7 +144,7 @@ process GLYCAN_MASKING_NOGLY {
 }
 
 process GLYCAN_MASKING_BATCH {
-    label 'rosetta'
+    label 'rosetta_glycans'
     cpus 1
     errorStrategy 'ignore'
     maxRetries 0
@@ -173,6 +180,7 @@ process GLYCAN_MASKING_BATCH {
 
 process GLYCAN_MERGE_POSITIONS {
     tag 'merge_position_batches'
+    label 'nf_light'
     cpus 1
     afterScript = {
         def safe = task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')
@@ -199,6 +207,7 @@ process GLYCAN_MERGE_POSITIONS {
 
 process GLOBAL_MERGE {
     tag 'merge_scores'
+    label 'nf_light'
     cpus 1
     afterScript = {
         def safe = task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')
@@ -225,6 +234,7 @@ process GLOBAL_MERGE {
 
 process ANALYZE {
     tag 'analyze'
+    label 'nf_light'
     cpus 1
     afterScript = {
         def safe = task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')

@@ -55,9 +55,11 @@ check_chain_in_pdb "$pdb_file" "$chain_id"
 mapfile -t parsed_output < <(parse_positions "$position_ranges" "$pdb_file" "$chain_id")
 mapfile -t cys_positions < <(get_cysteine_positions "$pdb_file" "$chain_id")
 
+mapfile -t chain_residue_order < <(get_chain_residue_order "$pdb_file" "$chain_id")
+L_chain=${#chain_residue_order[@]}
 read min_pos max_pos < <(get_sequence_bounds "$pdb_file" "$chain_id")
-echo "Sequence range: $min_pos to $max_pos"
-echo "Skipping positions within 4 residues of termini (N-term: $min_pos-$((min_pos+3)), C-term: $((max_pos-3))-$max_pos)"
+echo "Sequence range (PDB numbers): $min_pos to $max_pos; chain length $L_chain residues (N→C order for terminal filter)"
+echo "Skipping positions in the first 4 or last 4 residues of the chain (Rosetta PTM / glycan masking requires ≥4 residues from each terminus in sequence order)"
 
 # Separate grouped positions from individual positions
 grouped_runs=()
@@ -76,7 +78,7 @@ valid_individual_positions=()
 skipped_terminal=()
 skipped_cys=()
 for pos in "${individual_positions[@]}"; do
-    if is_terminal_position "$pos" "$min_pos" "$max_pos"; then
+    if is_terminal_position_seq "$pos" chain_residue_order; then
         skipped_terminal+=("$pos")
     elif is_cysteine "$pos" "${cys_positions[@]}"; then
         skipped_cys+=("$pos")
@@ -94,7 +96,7 @@ for group in "${grouped_runs[@]}"; do
     valid_group_positions=()
 
     for pos in "${group_positions[@]}"; do
-        if ! is_terminal_position "$pos" "$min_pos" "$max_pos" && \
+        if ! is_terminal_position_seq "$pos" chain_residue_order && \
            ! is_cysteine "$pos" "${cys_positions[@]}"; then
             valid_group_positions+=("$pos")
         fi
@@ -118,7 +120,7 @@ for seq_pos in "${native_sequons[@]}"; do
             break
         fi
     done
-    if [ "$skip" = false ]; then
+    if [ "$skip" = false ] && ! is_terminal_position_seq "$seq_pos" chain_residue_order; then
         valid_individual_positions+=("$seq_pos")
         n_wt_added=$((n_wt_added + 1))
     fi

@@ -22,6 +22,7 @@
 #
 # DEBUG:
 #   GLASS_NEXTFLOW_DEBUG=1          — print nextflow command and glass_config_json stderr
+#   GLASS_NEXTFLOW_SLURM_INI=path   — optional Slurm resource file (default: <config dir>/nextflow_slurm.ini)
 #   GLASS_NEXTFLOW_LOG_STDOUT=1     — disable tee to log files (interactive debugging)
 #   GLASS_NEXTFLOW_WORKDIR=/path    — override Nextflow -work-dir (default: <repo>/.nextflow_work)
 #   GLASS_NEXTFLOW_CONDA_PREFIX=    — path to conda env with nextflow (if not on PATH)

@@ -47,6 +47,79 @@ except ImportError:
 
 _BIOTITE_FALLBACK_WARNED = False
 
+# Rosetta PTMPredictionMetric: modification site must be >=4 residues from each terminus in *sequence* order.
+_PTM_TERMINAL_EXCLUDE_EACH_END = 4
+
+
+def _filter_ptm_terminal_pyrosetta(pose, chain_id: str, pdb_numbers: list[int], debug: bool) -> list[int]:
+    """Drop PDB numbers in the first/last four *pose* residues of the chain (Rosetta sequence order)."""
+    pdb_info = pose.pdb_info()
+    chain_indices = [i for i in range(1, pose.total_residue() + 1) if pdb_info.chain(i) == chain_id]
+    L = len(chain_indices)
+    if L < 2 * _PTM_TERMINAL_EXCLUDE_EACH_END + 1:
+        if debug:
+            print(
+                f"[DEBUG] Chain {chain_id!r} length {L} — cannot satisfy PTM terminal distance; returning no positions.",
+                file=sys.stderr,
+            )
+        return []
+    first_ord = _PTM_TERMINAL_EXCLUDE_EACH_END + 1
+    last_ord = L - _PTM_TERMINAL_EXCLUDE_EACH_END
+    # Map PDB number -> ordinal along chain (first occurrence if duplicate numbers / insertions).
+    ordinal_by_pdb: dict[int, int] = {}
+    for o, pi in enumerate(chain_indices, start=1):
+        n = int(pdb_info.number(pi))
+        if n not in ordinal_by_pdb:
+            ordinal_by_pdb[n] = o
+    out: list[int] = []
+    skipped = 0
+    for p in pdb_numbers:
+        o = ordinal_by_pdb.get(int(p))
+        if o is None:
+            skipped += 1
+            continue
+        if o < first_ord or o > last_ord:
+            skipped += 1
+            continue
+        out.append(int(p))
+    out.sort()
+    if skipped and debug:
+        print(
+            f"[DEBUG] Excluded {skipped} residue(s) within {_PTM_TERMINAL_EXCLUDE_EACH_END} positions of chain termini (PTM / Rosetta)",
+            file=sys.stderr,
+        )
+    return out
+
+
+def _filter_ptm_terminal_biotite(
+    ordered_res_ids: list[int], pdb_numbers: list[int], debug: bool
+) -> list[int]:
+    """Sequence-order terminal filter using Biotite residue order."""
+    L = len(ordered_res_ids)
+    if L < 2 * _PTM_TERMINAL_EXCLUDE_EACH_END + 1:
+        return []
+    first_ord = _PTM_TERMINAL_EXCLUDE_EACH_END + 1
+    last_ord = L - _PTM_TERMINAL_EXCLUDE_EACH_END
+    ordinal = {int(r): i + 1 for i, r in enumerate(ordered_res_ids)}
+    out: list[int] = []
+    skipped = 0
+    for p in pdb_numbers:
+        o = ordinal.get(int(p))
+        if o is None:
+            skipped += 1
+            continue
+        if o < first_ord or o > last_ord:
+            skipped += 1
+            continue
+        out.append(int(p))
+    out.sort()
+    if skipped and debug:
+        print(
+            f"[DEBUG] Excluded {skipped} residue(s) near termini (PTM / Rosetta)",
+            file=sys.stderr,
+        )
+    return out
+
 
 def _warn_biotite_fallback():
     """Warn once that Biotite is used; PyRosetta may work better."""
@@ -122,8 +195,9 @@ def _get_surface_residues_pyrosetta(pdb_file: str, chain_id: str, layer_type: st
         if debug:
             print(f"[DEBUG]   Residue -> Chain {pdb_info.chain(i)}, PDB# {pdb_info.number(i)}, {pose.residue(i).name3()}", file=sys.stderr)
     positions.sort()
+    positions = _filter_ptm_terminal_pyrosetta(pose, chain_id, positions, debug)
     if debug:
-        print(f"[DEBUG] Result: {len(positions)} residues in chain '{chain_id}' for layer '{layer_type}'", file=sys.stderr)
+        print(f"[DEBUG] Result: {len(positions)} residues in chain '{chain_id}' for layer '{layer_type}' (after PTM terminal filter)", file=sys.stderr)
     return positions
 
 
@@ -167,6 +241,14 @@ def _get_surface_residues_biotite(pdb_file: str, chain_id: str, layer_type: str,
         residue_sasa[rid] = residue_sasa.get(rid, 0.0) + s
     if not residue_sasa:
         return []
+    # N→C order = first occurrence of each residue number in ATOM records (matches prepare_positions.sh).
+    ordered_res_ids: list[int] = []
+    seen_r = set()
+    for i in range(len(chain_structure)):
+        rid = int(res_ids[i])
+        if rid not in seen_r:
+            seen_r.add(rid)
+            ordered_res_ids.append(rid)
     sasa_values = np.array(list(residue_sasa.values()))
     p33 = np.percentile(sasa_values, 33)
     p67 = np.percentile(sasa_values, 67)
@@ -191,8 +273,12 @@ def _get_surface_residues_biotite(pdb_file: str, chain_id: str, layer_type: str,
         if debug and ((layer == "surface" and pick_surface) or (layer == "boundary" and pick_boundary) or (layer == "core" and pick_core)):
             print(f"[DEBUG]   Residue {res_id} -> {layer} (SASA={sasa:.1f})", file=sys.stderr)
     positions.sort()
+    positions = _filter_ptm_terminal_biotite(ordered_res_ids, positions, debug)
     if debug:
-        print(f"[DEBUG] Result: {len(positions)} residues in chain '{chain_id}' for layer '{layer_type}'", file=sys.stderr)
+        print(
+            f"[DEBUG] Result: {len(positions)} residues in chain '{chain_id}' for layer '{layer_type}' (after PTM terminal filter)",
+            file=sys.stderr,
+        )
     return positions
 
 

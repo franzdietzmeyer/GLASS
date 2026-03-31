@@ -256,8 +256,9 @@ class PTMAnalyzer:
           - Figure width grows with position count (capped at 30 inches)
           - Bars always have a visible gap (width=0.72)
           - X-tick labels are always at 45 degrees
-          - Sequon annotations are included for <= 40 positions; for larger sets the
-            labels are reduced to position numbers only to avoid overlap
+          - Two-line tick labels (position + sequon) are used for <= 40 positions; for
+            larger sets ticks show position only (overlap), but the companion CSV still
+            includes a ``sequon`` column derived from ``final_sequence`` when possible
           - Font size and error-bar cap size are reduced adaptively for dense plots
 
         Args:
@@ -301,13 +302,14 @@ class PTMAnalyzer:
         # Error-bar cap size: narrower bars need smaller caps to avoid overlap
         capsize = max(2, min(6, int(6 * 20 / max(n_positions, 20))))
 
-        # Whether to include sequon annotations in x-tick labels.
-        # For large position counts the two-line labels overlap even at 45 degrees.
+        # Whether to include sequon annotations in *plot* x-tick labels (two-line ticks).
+        # For large position counts the two-line labels overlap. The CSV export always
+        # fills the sequon column from final_sequence when derivable — independent of this.
         use_sequon_labels = n_positions <= 40
 
         if self.debug:
             print(f"[DEBUG] fig_width={fig_width:.1f}in, xtick_fontsize={xtick_fontsize}, "
-                  f"capsize={capsize}, sequon_labels={use_sequon_labels}")
+                  f"capsize={capsize}, sequon_labels_on_plot={use_sequon_labels}")
 
         # --- Build a mapping: numeric position → display label ---
         # When the data came from a dimer run, 'position_label' holds the full
@@ -320,7 +322,7 @@ class PTMAnalyzer:
         else:
             pos_to_label = {}
 
-        # --- Build x-tick labels and sequon strings for CSV export ---
+        # --- Build x-tick labels (plot) and sequon strings (CSV; always from final_sequence) ---
         position_labels = []
         sequon_strings = []
         for pos in ptm_mean.index:
@@ -330,27 +332,35 @@ class PTMAnalyzer:
                 self.get_sequon_from_final_sequence
             ).dropna()
 
-            if use_sequon_labels and len(sequons) > 0:
+            # CSV: always record majority / mixed sequon label when final_sequence supports it
+            seq_csv = ""
+            value_counts = None
+            if len(sequons) > 0:
                 value_counts = sequons.value_counts(normalize=True)
                 if len(value_counts) == 1:
-                    # Two lines: position then sequon, e.g. "198\nNxT"
+                    seq_csv = str(value_counts.index[0])
+                else:
+                    seq_csv = " ".join(
+                        f"{seq}({int(round(freq * 100))}%)"
+                        for seq, freq in value_counts.items()
+                    )
+
+            # Plot ticks: two-line (position + sequon) only when not too many bars
+            if use_sequon_labels and value_counts is not None:
+                if len(value_counts) == 1:
                     seq_str = value_counts.index[0]
                     label = f"{display_pos}\n{seq_str}"
                 else:
-                    # Two lines: position then mixed sequons, e.g. "198,974\nNxS(60%) NxT(40%)"
                     parts = " ".join(
                         f"{seq}({int(round(freq * 100))}%)"
                         for seq, freq in value_counts.items()
                     )
-                    seq_str = parts
                     label = f"{display_pos}\n{parts}"
             else:
-                # Position label only — cleaner for large sets
-                seq_str = ""
                 label = str(display_pos)
 
             position_labels.append(label)
-            sequon_strings.append(seq_str)
+            sequon_strings.append(seq_csv)
 
         # --- Colors ---
         from plotting_utils import PlottingUtils
