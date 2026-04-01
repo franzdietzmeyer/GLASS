@@ -62,6 +62,8 @@ pdb_name=$(grep "^pdb_name" "$CONFIG_FILE" | cut -d'=' -f2 | sed 's/^[[:space:]]
 position_ranges=$(grep "^position_ranges" "$CONFIG_FILE" | cut -d'=' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 exclude_positions_raw=$(grep "^exclude_positions" "$CONFIG_FILE" | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 chain_id=$(grep "^chain_id" "$CONFIG_FILE" | cut -d'=' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+_enh_raw="$(grep -m1 "^enhanced_mode" "$CONFIG_FILE" 2>/dev/null | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+[[ "${_enh_raw,,}" == "true" ]] && enhanced_mode="true" || enhanced_mode="false"
 
 if [[ -z "$pdb_name" || -z "$position_ranges" || -z "$chain_id" ]]; then
     echo "Error: Missing required configuration variables (pdb_name, position_ranges, chain_id) in '$CONFIG_FILE'" >&2
@@ -82,6 +84,7 @@ L_chain=${#chain_residue_order[@]}
 read min_pos max_pos < <(get_sequence_bounds "$pdb_file" "$chain_id")
 echo "Sequence range (PDB numbers): $min_pos to $max_pos; chain length $L_chain residues (N→C order for terminal filter)"
 echo "Skipping positions in the first 4 or last 4 residues of the chain (Rosetta PTM / glycan masking requires ≥4 residues from each terminus in sequence order)"
+echo "Cysteine / sequon conflict check: enhanced_mode=$enhanced_mode (if true, FxNxT/S five-residue window around Asn; else N–X–S/T triplet)"
 
 # Separate grouped positions from individual positions
 grouped_runs=()
@@ -101,21 +104,21 @@ for item in "${parsed_output[@]}"; do
     fi
 done
 
-# Validate individual positions (skip terminal and CYS)
+# Validate individual positions (skip terminal and any site where the N–X–S/T triplet would hit a Cys)
 valid_individual_positions=()
 skipped_terminal=()
 skipped_cys=()
 for pos in "${individual_positions[@]}"; do
     if is_terminal_position_seq "$pos" chain_residue_order; then
         skipped_terminal+=("$pos")
-    elif is_cysteine "$pos" "${cys_positions[@]}"; then
+    elif glycan_sequon_start_conflicts_with_cysteine "$pos" chain_residue_order "$enhanced_mode" "${cys_positions[@]}"; then
         skipped_cys+=("$pos")
     else
         valid_individual_positions+=("$pos")
     fi
 done
 [[ ${#skipped_terminal[@]} -gt 0 ]] && echo "INFO: Skipped (terminal): ${skipped_terminal[*]}"
-[[ ${#skipped_cys[@]} -gt 0 ]] && echo "INFO: Skipped (CYS): ${skipped_cys[*]}"
+[[ ${#skipped_cys[@]} -gt 0 ]] && echo "INFO: Skipped (CYS / sequon N–X–S/T triplet): ${skipped_cys[*]}"
 
 # Validate grouped positions (check each position in the group)
 valid_grouped_runs=()
@@ -125,7 +128,7 @@ for group in "${grouped_runs[@]}"; do
 
     for pos in "${group_positions[@]}"; do
         if ! is_terminal_position_seq "$pos" chain_residue_order && \
-           ! is_cysteine "$pos" "${cys_positions[@]}"; then
+           ! glycan_sequon_start_conflicts_with_cysteine "$pos" chain_residue_order "$enhanced_mode" "${cys_positions[@]}"; then
             valid_group_positions+=("$pos")
         fi
     done
@@ -280,8 +283,8 @@ report_file="${OUTPUT_DIR%/}/positions_preparation_report.txt"
                 [[ -z "$_p" ]] && continue
                 if is_terminal_position_seq "$_p" chain_residue_order; then
                     _dropped+=("${_p} (terminal: $(_glass_terminal_reason "$_p"))")
-                elif is_cysteine "$_p" "${cys_positions[@]}"; then
-                    _dropped+=("${_p} (cysteine: mutating would remove or disrupt a native Cys / disulfide context)")
+                elif glycan_sequon_start_conflicts_with_cysteine "$_p" chain_residue_order "$enhanced_mode" "${cys_positions[@]}"; then
+                    _dropped+=("${_p} (cysteine: sequon mutation window would overlap a native Cys [triplet or FxNxT/S per enhanced_mode])")
                 else
                     _kept+=("$_p")
                 fi
@@ -310,9 +313,13 @@ report_file="${OUTPUT_DIR%/}/positions_preparation_report.txt"
         if is_terminal_position_seq "$pos" chain_residue_order; then
             _reason="terminal"
             _detail="$(_glass_terminal_reason "$pos")"
-        elif is_cysteine "$pos" "${cys_positions[@]}"; then
+        elif glycan_sequon_start_conflicts_with_cysteine "$pos" chain_residue_order "$enhanced_mode" "${cys_positions[@]}"; then
             _reason="cysteine"
-            _detail="Native Cys at this site — skipped so we do not mutate a cysteine/disulfide position"
+            if [[ "$enhanced_mode" == "true" ]]; then
+                _detail="Native Cys in the FxNxT/S five-residue window (Asn ±2) — skipped"
+            else
+                _detail="Native Cys in the N–X–S/T triplet for this Asn start site — skipped"
+            fi
         elif [[ -n "${exclude_map[$pos]:-}" ]]; then
             _reason="exclude_positions"
             _detail="${exclude_reason[$pos]:-excluded by exclude_positions in config}"

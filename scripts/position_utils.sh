@@ -205,6 +205,65 @@ is_cysteine() {
     return 1
 }
 
+# True if any residue Rosetta would mutate for the introduced sequon is a native cysteine.
+# *start_pos* is the Asn glycosylation site (Glycan_Masking Index resnums=%%start%%).
+#
+# Non-enhanced (basic sequon): N–X–S/T → three consecutive residues at offsets 0,1,2 from Asn.
+# Enhanced (basic_enhanced_n_sequon / FxNxT/S): five residues F–x–N–x–T/S at offsets −2..+2 from Asn
+# (matches analysis/data_processing.sequon_type_from_final_sequence 5-mer with N at index 2).
+#
+# DEBUG: GLASS_SEQUON_CYS_DEBUG=1 — print which residue in the window matched.
+glycan_sequon_start_conflicts_with_cysteine() {
+    local start_pos="$1"
+    local -n ordered_ref="$2"
+    local enhanced_raw="${3:-false}"
+    shift 3
+    local cys_positions=("$@")
+    local enhanced=false
+    [[ "${enhanced_raw,,}" == "true" ]] && enhanced=true
+
+    local L=${#ordered_ref[@]}
+    local i
+    for ((i = 0; i < L; i++)); do
+        if [[ "${ordered_ref[$i]}" == "$start_pos" ]]; then
+            local idx rp
+            if [[ "$enhanced" == true ]]; then
+                # FxNxT/S: residues at chain indices i-2 .. i+2
+                local off
+                for off in -2 -1 0 1 2; do
+                    idx=$((i + off))
+                    if [[ "$idx" -lt 0 || "$idx" -ge "$L" ]]; then
+                        continue
+                    fi
+                    rp="${ordered_ref[$idx]}"
+                    if is_cysteine "$rp" "${cys_positions[@]}"; then
+                        [[ "${GLASS_SEQUON_CYS_DEBUG:-0}" == "1" ]] && \
+                            echo "[DEBUG] enhanced FxNxT/S window conflict: Asn_site=${start_pos} → Cys at PDB ${rp} (offset ${off} from Asn)" >&2
+                        return 0
+                    fi
+                done
+            else
+                # N–X–S/T triplet: Asn at i and next two residues
+                local k
+                for k in 0 1 2; do
+                    idx=$((i + k))
+                    if [[ "$idx" -ge "$L" ]]; then
+                        return 1
+                    fi
+                    rp="${ordered_ref[$idx]}"
+                    if is_cysteine "$rp" "${cys_positions[@]}"; then
+                        [[ "${GLASS_SEQUON_CYS_DEBUG:-0}" == "1" ]] && \
+                            echo "[DEBUG] sequon triplet conflict: Asn_site=${start_pos} → Cys at PDB ${rp} (ordinal $((i + k + 1))/${L})" >&2
+                        return 0
+                    fi
+                done
+            fi
+            return 1
+        fi
+    done
+    return 1
+}
+
 # find_nglyc_sequon_starts: print N-X-[S/T] sequon start positions (ASN) for the given chain
 find_nglyc_sequon_starts() {
     local pdb_file="$1"
