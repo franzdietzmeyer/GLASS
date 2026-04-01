@@ -33,27 +33,6 @@ GLASS_ROOT="$(dirname "$SCRIPT_DIR")"
 # shellcheck source=scripts/position_utils.sh
 source "$GLASS_ROOT/scripts/position_utils.sh"
 
-# Human-readable reason for Rosetta PTM terminal window (chain ordinals).
-_glass_terminal_reason() {
-    local pos="$1"
-    local L=${#chain_residue_order[@]}
-    local i ord
-    for ((i = 0; i < L; i++)); do
-        if [[ "${chain_residue_order[$i]}" == "$pos" ]]; then
-            ord=$((i + 1))
-            if [[ "$ord" -le 4 ]]; then
-                echo "too_close_to_chain_N-terminus (ordinal ${ord}/${L}; first 4 positions excluded for Rosetta PTM)"
-                return
-            fi
-            if [[ "$ord" -ge $((L - 3)) ]]; then
-                echo "too_close_to_chain_C-terminus (ordinal ${ord}/${L}; last 4 positions excluded for Rosetta PTM)"
-                return
-            fi
-        fi
-    done
-    echo "terminal_filter (unmapped residue number — check insertion codes / chain)"
-}
-
 # ---------------------------------------------------------------------------
 # Read minimal config needed for position computation
 # ---------------------------------------------------------------------------
@@ -64,6 +43,13 @@ exclude_positions_raw=$(grep "^exclude_positions" "$CONFIG_FILE" | cut -d'=' -f2
 chain_id=$(grep "^chain_id" "$CONFIG_FILE" | cut -d'=' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 _enh_raw="$(grep -m1 "^enhanced_mode" "$CONFIG_FILE" 2>/dev/null | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 [[ "${_enh_raw,,}" == "true" ]] && enhanced_mode="true" || enhanced_mode="false"
+# If true (default), append native sequon Asn sites not already in the validated list.
+_add_ns_raw="$(grep -m1 "^add_native_sequon_starts_to_position_list" "$CONFIG_FILE" 2>/dev/null | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+if [[ -z "${_add_ns_raw:-}" ]]; then
+    add_native_sequon_starts_to_position_list="true"
+else
+    [[ "${_add_ns_raw,,}" == "true" ]] && add_native_sequon_starts_to_position_list="true" || add_native_sequon_starts_to_position_list="false"
+fi
 
 if [[ -z "$pdb_name" || -z "$position_ranges" || -z "$chain_id" ]]; then
     echo "Error: Missing required configuration variables (pdb_name, position_ranges, chain_id) in '$CONFIG_FILE'" >&2
@@ -86,6 +72,26 @@ echo "Sequence range (PDB numbers): $min_pos to $max_pos; chain length $L_chain 
 echo "Skipping positions in the first 4 or last 4 residues of the chain (Rosetta PTM / glycan masking requires ≥4 residues from each terminus in sequence order)"
 echo "Cysteine / sequon conflict check: enhanced_mode=$enhanced_mode (if true, FxNxT/S five-residue window around Asn; else N–X–S/T triplet)"
 
+# Native N-glyc: Asn starts (for appending WT sites). Excluded as *start* sites: S/T at +2; classic
+# Asn−2; for *valid* enhanced [%AROMATIC]-N[^P][ST] also Asn−2 (aromatic), Asn−4, and +2 — skipped
+# when N+1 is Pro (not a glycosylatable sequon; no extra exclusions).
+# Classic N–X–S/T and enhanced [%AROMATIC]-N[^P][ST] (stacked / overlapping sites keep each qualifying Asn).
+mapfile -t native_classic_sequons < <(find_nglyc_sequon_starts "$pdb_file" "$chain_id")
+mapfile -t native_enhanced_sequons < <(find_enhanced_nglyc_sequon_starts "$pdb_file" "$chain_id")
+mapfile -t all_native_sequon_asn < <(printf '%s\n' "${native_classic_sequons[@]}" "${native_enhanced_sequons[@]}" | grep -v '^$' | sort -nu)
+mapfile -t native_classic_plus2 < <(find_nglyc_sequon_plus2_positions "$pdb_file" "$chain_id")
+mapfile -t native_enhanced_plus2 < <(find_enhanced_nglyc_sequon_plus2_positions "$pdb_file" "$chain_id")
+mapfile -t all_native_sequon_plus2 < <(printf '%s\n' "${native_classic_plus2[@]}" "${native_enhanced_plus2[@]}" | grep -v '^$' | sort -nu)
+mapfile -t native_classic_asn_m2 < <(find_nglyc_sequon_asn_minus2_positions "$pdb_file" "$chain_id")
+mapfile -t native_enhanced_asn_m2 < <(find_enhanced_nglyc_sequon_asn_minus2_positions "$pdb_file" "$chain_id")
+mapfile -t all_native_sequon_asn_minus2 < <(printf '%s\n' "${native_classic_asn_m2[@]}" "${native_enhanced_asn_m2[@]}" | grep -v '^$' | sort -nu)
+mapfile -t all_native_sequon_enhanced_asn_minus4 < <(find_enhanced_nglyc_sequon_asn_minus4_positions "$pdb_file" "$chain_id")
+echo "Native sequon Asn positions (chain ${chain_id}): classic N–X–S/T: ${#native_classic_sequons[@]} (${native_classic_sequons[*]:-none}); enhanced [%AROMATIC]-N[^P][ST]: ${#native_enhanced_sequons[@]} (${native_enhanced_sequons[*]:-none}); merged unique: ${#all_native_sequon_asn[@]}"
+echo "Native sequon +2 (S/T) positions excluded as start sites: classic: ${#native_classic_plus2[@]} (${native_classic_plus2[*]:-none}); enhanced (valid only): ${#native_enhanced_plus2[@]} (${native_enhanced_plus2[*]:-none}); merged unique: ${#all_native_sequon_plus2[@]}"
+echo "Native sequon Asn−2 positions excluded: classic: ${#native_classic_asn_m2[@]} (${native_classic_asn_m2[*]:-none}); enhanced (aromatic, valid only): ${#native_enhanced_asn_m2[@]} (${native_enhanced_asn_m2[*]:-none}); merged unique: ${#all_native_sequon_asn_minus2[@]}"
+echo "Native enhanced sequon Asn−4 positions excluded (valid [%AROMATIC]-N[^P][ST] only): ${#all_native_sequon_enhanced_asn_minus4[@]} (${all_native_sequon_enhanced_asn_minus4[*]:-none})"
+echo "add_native_sequon_starts_to_position_list=${add_native_sequon_starts_to_position_list} (append WT Asn starts not in list)"
+
 # Separate grouped positions from individual positions
 grouped_runs=()
 individual_positions=()
@@ -104,21 +110,75 @@ for item in "${parsed_output[@]}"; do
     fi
 done
 
-# Validate individual positions (skip terminal and any site where the N–X–S/T triplet would hit a Cys)
+# PTM terminal window: must match Rosetta PTMPredictionMetric (≥4 residues from each terminus in
+# *pose* sequence order). PDB-file-only order in is_terminal_position_seq can disagree with Rosetta.
+_ptm_cand=()
+for p in "${individual_positions[@]}"; do _ptm_cand+=("$p"); done
+for group in "${grouped_runs[@]}"; do
+    IFS=',' read -ra _gp <<< "$group"
+    for _p in "${_gp[@]}"; do
+        _p="${_p// /}"
+        [[ -n "$_p" ]] && _ptm_cand+=("$_p")
+    done
+done
+for _p in "${all_native_sequon_asn[@]}"; do _ptm_cand+=("$_p"); done
+mapfile -t _ptm_cand_u < <(printf '%s\n' "${_ptm_cand[@]}" | grep -v '^$' | sort -nu)
+
+ptm_allowed_positions=()
+_ptm_filter_py="${GLASS_ROOT}/analysis/ptm_prepare_positions_filter.py"
+if [[ ${#_ptm_cand_u[@]} -eq 0 ]]; then
+    :
+elif [[ -f "$_ptm_filter_py" ]] && command -v python3 >/dev/null 2>&1; then
+    _ptm_tmp="$(mktemp)"
+    if printf '%s\n' "${_ptm_cand_u[@]}" | python3 "$_ptm_filter_py" "$pdb_file" "$chain_id" > "$_ptm_tmp" 2>/dev/null; then
+        mapfile -t ptm_allowed_positions < "$_ptm_tmp"
+        rm -f "$_ptm_tmp"
+        echo "INFO: PTM terminal filter (Rosetta/Biotite chain order): ${#ptm_allowed_positions[@]} of ${#_ptm_cand_u[@]} candidate residue number(s) allowed for PTMPredictionMetric"
+    else
+        rm -f "$_ptm_tmp"
+        echo "WARN: ptm_prepare_positions_filter.py failed; using PDB file residue order for terminal exclusion (may not match Rosetta)." >&2
+        for _p in "${_ptm_cand_u[@]}"; do
+            if ! is_terminal_position_seq "$_p" chain_residue_order; then
+                ptm_allowed_positions+=("$_p")
+            fi
+        done
+    fi
+else
+    echo "WARN: python3 or ${GLASS_ROOT}/analysis/ptm_prepare_positions_filter.py unavailable; using PDB file order for PTM terminal filter." >&2
+    for _p in "${_ptm_cand_u[@]}"; do
+        if ! is_terminal_position_seq "$_p" chain_residue_order; then
+            ptm_allowed_positions+=("$_p")
+        fi
+    done
+fi
+
+# Validate individual positions (terminal / Cys overlap / native sequon +2, Asn−2, enhanced Asn−4)
 valid_individual_positions=()
 skipped_terminal=()
 skipped_cys=()
+skipped_native_sequon_plus2=()
+skipped_native_sequon_asn_minus2=()
+skipped_native_sequon_enhanced_asn_minus4=()
 for pos in "${individual_positions[@]}"; do
-    if is_terminal_position_seq "$pos" chain_residue_order; then
+    if ! position_in_integer_list "$pos" "${ptm_allowed_positions[@]}"; then
         skipped_terminal+=("$pos")
     elif glycan_sequon_start_conflicts_with_cysteine "$pos" chain_residue_order "$enhanced_mode" "${cys_positions[@]}"; then
         skipped_cys+=("$pos")
+    elif position_in_integer_list "$pos" "${all_native_sequon_plus2[@]}"; then
+        skipped_native_sequon_plus2+=("$pos")
+    elif position_in_integer_list "$pos" "${all_native_sequon_asn_minus2[@]}"; then
+        skipped_native_sequon_asn_minus2+=("$pos")
+    elif position_in_integer_list "$pos" "${all_native_sequon_enhanced_asn_minus4[@]}"; then
+        skipped_native_sequon_enhanced_asn_minus4+=("$pos")
     else
         valid_individual_positions+=("$pos")
     fi
 done
 [[ ${#skipped_terminal[@]} -gt 0 ]] && echo "INFO: Skipped (terminal): ${skipped_terminal[*]}"
 [[ ${#skipped_cys[@]} -gt 0 ]] && echo "INFO: Skipped (CYS / sequon N–X–S/T triplet): ${skipped_cys[*]}"
+[[ ${#skipped_native_sequon_plus2[@]} -gt 0 ]] && echo "INFO: Skipped (native sequon +2 Ser/Thr): ${skipped_native_sequon_plus2[*]}"
+[[ ${#skipped_native_sequon_asn_minus2[@]} -gt 0 ]] && echo "INFO: Skipped (native sequon Asn−2): ${skipped_native_sequon_asn_minus2[*]}"
+[[ ${#skipped_native_sequon_enhanced_asn_minus4[@]} -gt 0 ]] && echo "INFO: Skipped (native enhanced sequon Asn−4): ${skipped_native_sequon_enhanced_asn_minus4[*]}"
 
 # Validate grouped positions (check each position in the group)
 valid_grouped_runs=()
@@ -127,8 +187,11 @@ for group in "${grouped_runs[@]}"; do
     valid_group_positions=()
 
     for pos in "${group_positions[@]}"; do
-        if ! is_terminal_position_seq "$pos" chain_residue_order && \
-           ! glycan_sequon_start_conflicts_with_cysteine "$pos" chain_residue_order "$enhanced_mode" "${cys_positions[@]}"; then
+        if position_in_integer_list "$pos" "${ptm_allowed_positions[@]}" && \
+           ! glycan_sequon_start_conflicts_with_cysteine "$pos" chain_residue_order "$enhanced_mode" "${cys_positions[@]}" && \
+           ! position_in_integer_list "$pos" "${all_native_sequon_plus2[@]}" && \
+           ! position_in_integer_list "$pos" "${all_native_sequon_asn_minus2[@]}" && \
+           ! position_in_integer_list "$pos" "${all_native_sequon_enhanced_asn_minus4[@]}"; then
             valid_group_positions+=("$pos")
         fi
     done
@@ -138,28 +201,30 @@ for group in "${grouped_runs[@]}"; do
     fi
 done
 
-# Add already present N^P[ST] sequon starts in the PDB file (selected chain only) as valid positions.
-mapfile -t native_sequons < <(find_nglyc_sequon_starts "$pdb_file" "$chain_id")
+# Optional: append native sequon Asn sites (classic + enhanced lists) not already in the validated list.
 n_from_config_individual=${#valid_individual_positions[@]}
 n_from_config_grouped=${#valid_grouped_runs[@]}
 n_wt_added=0
-for seq_pos in "${native_sequons[@]}"; do
-    skip=false
-    for vpos in "${valid_individual_positions[@]}"; do
-        if [[ "$vpos" == "$seq_pos" ]]; then
-            skip=true
-            break
+if [[ "$add_native_sequon_starts_to_position_list" == "true" ]]; then
+    for seq_pos in "${all_native_sequon_asn[@]}"; do
+        [[ -z "$seq_pos" ]] && continue
+        skip=false
+        for vpos in "${valid_individual_positions[@]}"; do
+            if [[ "$vpos" == "$seq_pos" ]]; then
+                skip=true
+                break
+            fi
+        done
+        if [ "$skip" = false ] && position_in_integer_list "$seq_pos" "${ptm_allowed_positions[@]}"; then
+            valid_individual_positions+=("$seq_pos")
+            n_wt_added=$((n_wt_added + 1))
         fi
     done
-    if [ "$skip" = false ] && ! is_terminal_position_seq "$seq_pos" chain_residue_order; then
-        valid_individual_positions+=("$seq_pos")
-        n_wt_added=$((n_wt_added + 1))
-    fi
-done
+fi
 n_total=$((n_from_config_individual + n_from_config_grouped + n_wt_added))
 echo "INFO: Positions from config (after validation): $n_from_config_individual individual, $n_from_config_grouped grouped"
-echo "INFO: Native (WT) N-glyc sequons on chain $chain_id: ${#native_sequons[@]} (${native_sequons[*]:-none})"
-echo "INFO: Added from WT (not already in list): $n_wt_added → total positions to run: $n_total"
+echo "INFO: Native sequon sites detected (merged classic+enhanced): ${#all_native_sequon_asn[@]} (${all_native_sequon_asn[*]:-none})"
+echo "INFO: Appended native sequon starts (add_native_sequon_starts_to_position_list): $n_wt_added added → total positions to run: $n_total"
 
 # ---------------------------------------------------------------------------
 # Exclude positions (optional): numeric positions/ranges + interface selectors
@@ -263,6 +328,9 @@ report_file="${OUTPUT_DIR%/}/positions_preparation_report.txt"
     echo "#"
     echo "# Notes:"
     echo "# - First and Last 4 residues of the chain are excluded for Rosetta PTM / glycan masking."
+    echo "# - Ser/Thr at native +2; classic Asn−2; valid enhanced [%AROMATIC]-N[^P][ST]: aromatic (Asn−2), Asn−4, +2."
+    echo "#   If N+1 is Pro, enhanced sequon is not glycosylatable — N+2 / Asn−2 / Asn−4 exclusions are not applied."
+    echo "#   Wild-type Asn starts are included and run; add_native_sequon_starts_to_position_list appends any not in config."
     echo ""
     echo "## Summary"
     echo "- Chain residue count (N→C): ${L_chain}"
@@ -281,10 +349,16 @@ report_file="${OUTPUT_DIR%/}/positions_preparation_report.txt"
             for _p in "${_gp[@]}"; do
                 _p="${_p// /}"
                 [[ -z "$_p" ]] && continue
-                if is_terminal_position_seq "$_p" chain_residue_order; then
-                    _dropped+=("${_p} (terminal: $(_glass_terminal_reason "$_p"))")
+                if ! position_in_integer_list "$_p" "${ptm_allowed_positions[@]}"; then
+                    _dropped+=("${_p} (terminal: PTMPredictionMetric — within 4 residues of N- or C-terminus in Rosetta chain sequence order)")
                 elif glycan_sequon_start_conflicts_with_cysteine "$_p" chain_residue_order "$enhanced_mode" "${cys_positions[@]}"; then
                     _dropped+=("${_p} (cysteine: sequon mutation window would overlap a native Cys [triplet or FxNxT/S per enhanced_mode])")
+                elif position_in_integer_list "$_p" "${all_native_sequon_plus2[@]}"; then
+                    _dropped+=("${_p} (native sequon +2 Ser/Thr)")
+                elif position_in_integer_list "$_p" "${all_native_sequon_asn_minus2[@]}"; then
+                    _dropped+=("${_p} (native sequon Asn−2)")
+                elif position_in_integer_list "$_p" "${all_native_sequon_enhanced_asn_minus4[@]}"; then
+                    _dropped+=("${_p} (native enhanced sequon Asn−4)")
                 else
                     _kept+=("$_p")
                 fi
@@ -310,9 +384,9 @@ report_file="${OUTPUT_DIR%/}/positions_preparation_report.txt"
         [[ -z "$pos" ]] && continue
         _reason=""
         _detail=""
-        if is_terminal_position_seq "$pos" chain_residue_order; then
+        if ! position_in_integer_list "$pos" "${ptm_allowed_positions[@]}"; then
             _reason="terminal"
-            _detail="$(_glass_terminal_reason "$pos")"
+            _detail="PTMPredictionMetric: not ≥4 residues from each chain terminus (Rosetta pose sequence order)"
         elif glycan_sequon_start_conflicts_with_cysteine "$pos" chain_residue_order "$enhanced_mode" "${cys_positions[@]}"; then
             _reason="cysteine"
             if [[ "$enhanced_mode" == "true" ]]; then
@@ -320,6 +394,15 @@ report_file="${OUTPUT_DIR%/}/positions_preparation_report.txt"
             else
                 _detail="Native Cys in the N–X–S/T triplet for this Asn start site — skipped"
             fi
+        elif position_in_integer_list "$pos" "${all_native_sequon_plus2[@]}"; then
+            _reason="native_sequon_plus2"
+            _detail="Ser/Thr at +2 of a native sequon — excluded as start (would destroy WT acceptor)"
+        elif position_in_integer_list "$pos" "${all_native_sequon_asn_minus2[@]}"; then
+            _reason="native_sequon_asn_minus2"
+            _detail="Asn−2 of a native sequon (classic triplet or enhanced aromatic) — excluded as Rosetta start"
+        elif position_in_integer_list "$pos" "${all_native_sequon_enhanced_asn_minus4[@]}"; then
+            _reason="native_sequon_enhanced_asn_minus4"
+            _detail="Asn−4 of a valid native enhanced [%AROMATIC]-N[^P][ST] sequon — excluded as Rosetta start"
         elif [[ -n "${exclude_map[$pos]:-}" ]]; then
             _reason="exclude_positions"
             _detail="${exclude_reason[$pos]:-excluded by exclude_positions in config}"
@@ -329,12 +412,17 @@ report_file="${OUTPUT_DIR%/}/positions_preparation_report.txt"
         echo -e "${pos}\t${_reason}\t${_detail}"
     done
     echo ""
-    echo "## Wild-type N-glyc sequon positions auto-added (if not already listed above)"
-    if [[ "$n_wt_added" -eq 0 ]]; then
-        echo "(none added)"
+    echo "## Wild-type sequon starts (add_native_sequon_starts_to_position_list)"
+    echo "Detected N-glyc Asn positions (PDB residue numbers, chain ${chain_id}):"
+    echo "  - Classic N–X–S/T (X≠Pro): ${native_classic_sequons[*]:-none}"
+    echo "  - Enhanced [%AROMATIC]-N[^P][ST]: ${native_enhanced_sequons[*]:-none}"
+    echo "  - Merged unique (all WT sequon starts found): ${all_native_sequon_asn[*]:-none}"
+    if [[ "$add_native_sequon_starts_to_position_list" != "true" ]]; then
+        echo "Auto-append: disabled in config — native Asn sites are not added beyond the validated list."
+    elif [[ "$n_wt_added" -eq 0 ]]; then
+        echo "Auto-append: 0 positions added (each merged site was already in the validated list after filters, or failed the terminal/PTM window check)."
     else
-        echo "Count: ${n_wt_added} (sequon starts on chain ${chain_id} that were not already in the validated list)."
-        echo "Native sequon sites detected: ${native_sequons[*]:-none}"
+        echo "Auto-append: ${n_wt_added} position(s) added from merged list — sites on chain ${chain_id} not already in the validated list after filters."
     fi
     echo ""
     echo "## Final entries in positions.txt (one job per line; grouped = underscores)"

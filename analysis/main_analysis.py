@@ -109,7 +109,7 @@ Examples:
     ptm_group.add_argument(
         '--glycan-model',
         dest='glycan_model',
-        choices=['glycans', 'no_glycans'],
+        choices=['glycans', 'no_glycans', 'no_glycans_forced'],
         default=None,
         help='Pipeline glycan_model label for output filenames (default: infer from --mode)',
     )

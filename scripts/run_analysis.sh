@@ -52,16 +52,19 @@ if [[ "$glycan_model" == "glycans" ]]; then
         --glycan-model glycans \
         --output-dir "../$out_dir/analysis_results"
 else
-    if [[ "$glycan_model" != "no_glycans" ]]; then
-        echo "GLASS analysis: warning: glycan_model normalized to '${glycan_model}' (expected 'glycans' or 'no_glycans'); using --mode no_glycans." >&2
+    # PTM analysis: same --mode for no_glycans and no_glycans_forced; output filenames use glycan_model tag.
+    glycan_model_tag="$glycan_model"
+    if [[ "$glycan_model" != "no_glycans" && "$glycan_model" != "no_glycans_forced" ]]; then
+        echo "GLASS analysis: warning: glycan_model='${glycan_model}' (expected 'glycans', 'no_glycans', or 'no_glycans_forced'); using --mode no_glycans with tag no_glycans." >&2
+        glycan_model_tag="no_glycans"
     fi
-    echo "GLASS analysis: glycan_model='${glycan_model}' -> main_analysis.py --mode no_glycans (PTM by position)" >&2
+    echo "GLASS analysis: glycan_model='${glycan_model}' -> main_analysis.py --mode no_glycans (PTM by position), tag=${glycan_model_tag}" >&2
     python main_analysis.py --mode no_glycans \
         --scorefile "../$scorefile" \
         --pdb-file "../$pdb_path" \
         --construct "$construct" \
         --chain-id "$chain_id" \
-        --glycan-model no_glycans \
+        --glycan-model "$glycan_model_tag" \
         --output-dir "../$out_dir/analysis_results"
 fi
 

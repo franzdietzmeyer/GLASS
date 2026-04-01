@@ -4,7 +4,7 @@
 # Usage: run_one_position.sh <pdb_path> <position_string> <enhanced> <glycan_model> <container> <job_output_dir> [batch_id] [batch_size] [total_nstruct]
 # Optional batch args (7,8,9): glycans parallel mode — multiple jobs per position share one output dir,
 #   one scorefile ({pdb}_position{id}.sc), -nstruct = chunk per job, MPWOD + stagger (see below).
-# no_glycans: Rosetta command always includes -multiple_processes_writing_to_one_directory (no env toggle).
+# no_glycans / no_glycans_forced: Rosetta always includes -multiple_processes_writing_to_one_directory (non-glycans protocol).
 # Output: <job_output_dir>/{pdb_name}_position{position_id}.sc
 # Reads nstruct and RMSD_filter from config.ini (unless overridden by batch args for chunk size).
 #

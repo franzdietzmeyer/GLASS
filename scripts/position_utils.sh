@@ -157,21 +157,29 @@ get_chain_residue_order() {
 }
 
 # Terminal if among first 4 or last 4 residues of the chain (1-based ordinal in get_chain_residue_order).
+# Uses PDB *file* residue order (first ATOM per residue) — may differ from Rosetta pose order; prefer
+# analysis/ptm_prepare_positions_filter.py in prepare_positions when PyRosetta/Biotite are available.
+#
+# Unknown PDB number (not in ordered_ref) → treat as terminal (exclude) so we never pass orphan labels.
+# Compares residue numbers as integers so 10 matches 010-style inputs.
 is_terminal_position_seq() {
     local pos="$1"
     local -n ordered_ref="$2"
     local L=${#ordered_ref[@]}
     [[ "$L" -lt 9 ]] && return 0
+    local pos_int
+    pos_int=$((${pos} + 0)) || return 0
     local i
     for ((i = 0; i < L; i++)); do
-        if [[ "${ordered_ref[$i]}" == "$pos" ]]; then
+        local oi=$((${ordered_ref[$i]} + 0))
+        if [[ "$oi" -eq "$pos_int" ]]; then
             local ord=$((i + 1))
             [[ "$ord" -le 4 ]] && return 0
             [[ "$ord" -ge $((L - 3)) ]] && return 0
             return 1
         fi
     done
-    return 1
+    return 0
 }
 
 is_terminal_position() {
@@ -203,6 +211,16 @@ is_cysteine() {
         fi
     done
     return 1
+}
+
+# Matches Rosetta CreateGlycanSequon [%AROMATIC] (Phe, Tyr, Trp, His).
+is_aromatic_residue_name() {
+    local aa
+    aa=$(echo "$1" | tr '[:lower:]' '[:upper:]')
+    case "$aa" in
+        PHE|TYR|TRP|HIS) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 # True if any residue Rosetta would mutate for the introduced sequon is a native cysteine.
@@ -280,4 +298,151 @@ find_nglyc_sequon_starts() {
         fi
     done
     printf "%s\n" "${sequon_starts[@]}" | sort -nu
+}
+
+# Enhanced N-glyc motif [%AROMATIC]-N[^P][ST] (five consecutive residues; Asn at index +2 in window).
+# Returns Asn PDB numbers for *valid* glycosylation sequons only (N+1 ≠ Pro). Stacked / overlapping
+# sites register each qualifying Asn separately.
+#
+# DEBUG: GLASS_NATIVE_SEQUON_DEBUG=1 — print each match.
+find_enhanced_nglyc_sequon_starts() {
+    local pdb_file="$1"
+    local chain="$2"
+    local out=()
+    mapfile -t residues < <(awk -v ch="$chain" '($1=="ATOM"||$1=="HETATM") && substr($0,22,1)==ch {printf "%d %s\n", substr($0,23,4)+0, substr($0,18,3)}' "$pdb_file" | sort -nk1 | uniq)
+    local num_residues="${#residues[@]}"
+    local i
+    for ((i=0; i<=num_residues-5; i++)); do
+        res_ar=(${residues[$i]})
+        resn=(${residues[$((i+2))]})
+        resx=(${residues[$((i+3))]})
+        rest=(${residues[$((i+4))]})
+        if is_aromatic_residue_name "${res_ar[1]}" && [[ "${resn[1]}" == "ASN" && "${resx[1]}" != "PRO" && "${rest[1]}" =~ ^(SER|THR)$ ]]; then
+            [[ "${GLASS_NATIVE_SEQUON_DEBUG:-0}" == "1" ]] && \
+                echo "[DEBUG] enhanced sequon Asn PDB ${resn[0]} ([%AROMATIC]@${res_ar[0]} … ${rest[1]}@${rest[0]})" >&2
+            out+=("${resn[0]}")
+        fi
+    done
+    printf '%s\n' "${out[@]}" | grep -v '^$' | sort -nu
+}
+
+# PDB numbers of the Ser/Thr at sequon +2 (third residue) for each native N–X–S/T on the chain.
+# Excluding these as Rosetta *start* positions avoids running sequon design where the selected
+# residue is the terminal S/T of an existing glycan sequon (mutating it would destroy the site).
+find_nglyc_sequon_plus2_positions() {
+    local pdb_file="$1"
+    local chain="$2"
+    local plus2=()
+    mapfile -t residues < <(awk -v ch="$chain" '($1=="ATOM"||$1=="HETATM") && substr($0,22,1)==ch {printf "%d %s\n", substr($0,23,4)+0, substr($0,18,3)}' "$pdb_file" | sort -nk1 | uniq)
+    local num_residues="${#residues[@]}"
+    local i
+    for ((i=0; i<=num_residues-3; i++)); do
+        res0=(${residues[$i]})
+        res1=(${residues[$((i+1))]})
+        res2=(${residues[$((i+2))]})
+        if [[ "${res0[1]}" == "ASN" && "${res1[1]}" != "PRO" && "${res2[1]}" =~ ^(SER|THR)$ ]]; then
+            plus2+=("${res2[0]}")
+        fi
+    done
+    printf '%s\n' "${plus2[@]}" | grep -v '^$' | sort -nu
+}
+
+# PDB numbers of Ser/Thr at N+2 for each *valid* enhanced [%AROMATIC]-N[^P][ST] sequon.
+# If N+1 is Pro the motif is not glycosylatable — do not exclude N+2 (caller merges with classic +2).
+find_enhanced_nglyc_sequon_plus2_positions() {
+    local pdb_file="$1"
+    local chain="$2"
+    local plus2=()
+    mapfile -t residues < <(awk -v ch="$chain" '($1=="ATOM"||$1=="HETATM") && substr($0,22,1)==ch {printf "%d %s\n", substr($0,23,4)+0, substr($0,18,3)}' "$pdb_file" | sort -nk1 | uniq)
+    local num_residues="${#residues[@]}"
+    local i
+    for ((i=0; i<=num_residues-5; i++)); do
+        res_ar=(${residues[$i]})
+        resn=(${residues[$((i+2))]})
+        resx=(${residues[$((i+3))]})
+        rest=(${residues[$((i+4))]})
+        if is_aromatic_residue_name "${res_ar[1]}" && [[ "${resn[1]}" == "ASN" && "${resx[1]}" != "PRO" && "${rest[1]}" =~ ^(SER|THR)$ ]]; then
+            plus2+=("${rest[0]}")
+        fi
+    done
+    printf '%s\n' "${plus2[@]}" | grep -v '^$' | sort -nu
+}
+
+# PDB numbers of residues two positions N-terminal of each native classic sequon Asn (Asn−2).
+# Excluding these as Rosetta *start* sites avoids a 3-mer motif window that would overlap/remove the WT Asn.
+find_nglyc_sequon_asn_minus2_positions() {
+    local pdb_file="$1"
+    local chain="$2"
+    local minus2=()
+    mapfile -t residues < <(awk -v ch="$chain" '($1=="ATOM"||$1=="HETATM") && substr($0,22,1)==ch {printf "%d %s\n", substr($0,23,4)+0, substr($0,18,3)}' "$pdb_file" | sort -nk1 | uniq)
+    local num_residues="${#residues[@]}"
+    local i
+    for ((i=0; i<=num_residues-3; i++)); do
+        res0=(${residues[$i]})
+        res1=(${residues[$((i+1))]})
+        res2=(${residues[$((i+2))]})
+        if [[ "${res0[1]}" == "ASN" && "${res1[1]}" != "PRO" && "${res2[1]}" =~ ^(SER|THR)$ ]]; then
+            if [[ "$i" -ge 2 ]]; then
+                res_m2=(${residues[$((i-2))]})
+                minus2+=("${res_m2[0]}")
+            fi
+        fi
+    done
+    printf '%s\n' "${minus2[@]}" | grep -v '^$' | sort -nu
+}
+
+# [%AROMATIC] at Asn−2 for each *valid* enhanced sequon (N+1 ≠ Pro). If N+1 is Pro, skip — no WT
+# glycan to protect at that site.
+find_enhanced_nglyc_sequon_asn_minus2_positions() {
+    local pdb_file="$1"
+    local chain="$2"
+    local minus2=()
+    mapfile -t residues < <(awk -v ch="$chain" '($1=="ATOM"||$1=="HETATM") && substr($0,22,1)==ch {printf "%d %s\n", substr($0,23,4)+0, substr($0,18,3)}' "$pdb_file" | sort -nk1 | uniq)
+    local num_residues="${#residues[@]}"
+    local i
+    for ((i=0; i<=num_residues-5; i++)); do
+        res_ar=(${residues[$i]})
+        resn=(${residues[$((i+2))]})
+        resx=(${residues[$((i+3))]})
+        rest=(${residues[$((i+4))]})
+        if is_aromatic_residue_name "${res_ar[1]}" && [[ "${resn[1]}" == "ASN" && "${resx[1]}" != "PRO" && "${rest[1]}" =~ ^(SER|THR)$ ]]; then
+            minus2+=("${res_ar[0]}")
+        fi
+    done
+    printf '%s\n' "${minus2[@]}" | grep -v '^$' | sort -nu
+}
+
+# Asn−4 (four residues N-terminal of Asn) for each *valid* enhanced [%AROMATIC]-N[^P][ST] sequon.
+# Requires i≥2 in the 5-mer window start index so residues[i−2] exists.
+find_enhanced_nglyc_sequon_asn_minus4_positions() {
+    local pdb_file="$1"
+    local chain="$2"
+    local minus4=()
+    mapfile -t residues < <(awk -v ch="$chain" '($1=="ATOM"||$1=="HETATM") && substr($0,22,1)==ch {printf "%d %s\n", substr($0,23,4)+0, substr($0,18,3)}' "$pdb_file" | sort -nk1 | uniq)
+    local num_residues="${#residues[@]}"
+    local i
+    for ((i=0; i<=num_residues-5; i++)); do
+        res_ar=(${residues[$i]})
+        resn=(${residues[$((i+2))]})
+        resx=(${residues[$((i+3))]})
+        rest=(${residues[$((i+4))]})
+        if is_aromatic_residue_name "${res_ar[1]}" && [[ "${resn[1]}" == "ASN" && "${resx[1]}" != "PRO" && "${rest[1]}" =~ ^(SER|THR)$ ]]; then
+            if [[ "$i" -ge 2 ]]; then
+                res_m4=(${residues[$((i-2))]})
+                minus4+=("${res_m4[0]}")
+            fi
+        fi
+    done
+    printf '%s\n' "${minus4[@]}" | grep -v '^$' | sort -nu
+}
+
+# True if *needle* equals one of the PDB residue numbers in the list.
+position_in_integer_list() {
+    local needle="$1"
+    shift
+    local x
+    for x in "$@"; do
+        [[ "$x" == "$needle" ]] && return 0
+    done
+    return 1
 }
