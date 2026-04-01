@@ -42,9 +42,14 @@ def main() -> None:
     sec = ini[section]
 
     # Optional Slurm-only overrides (kept out of config.ini for clarity).
+    # Frozen runs use a snapshot under results/.../.glass/; sidecars stay next to the user's real ini.
     slurm_ini_path = os.environ.get("GLASS_NEXTFLOW_SLURM_INI", "").strip()
     if not slurm_ini_path:
-        slurm_ini_path = os.path.join(os.path.dirname(config_ini_abs), "nextflow_slurm.ini")
+        _sidecar_dir = os.path.dirname(config_ini_abs)
+        _src = os.environ.get("GLASS_CONFIG_INI_SOURCE", "").strip()
+        if _src and os.path.isfile(_src):
+            _sidecar_dir = os.path.dirname(os.path.abspath(_src))
+        slurm_ini_path = os.path.join(_sidecar_dir, "nextflow_slurm.ini")
     slurm_ini_path = os.path.abspath(slurm_ini_path)
     ini_slurm = configparser.ConfigParser()
     slurm_sec = None

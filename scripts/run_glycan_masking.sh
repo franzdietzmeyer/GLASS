@@ -35,8 +35,9 @@ container="$(read_ini_value "rosetta_docker_cont" "$config")"
 if [[ -z "${enhanced}" ]]; then
     enhanced="false"
 fi
+# Match workflows/nextflow/glass_config_json.py: empty glycan_model => no_glycans (not glycans).
 if [[ -z "${glycan_model}" ]]; then
-    glycan_model="glycans"
+    glycan_model="no_glycans"
 fi
 
 mkdir -p "$output_dir"

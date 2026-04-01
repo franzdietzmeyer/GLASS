@@ -27,8 +27,18 @@
 #   GLASS_NEXTFLOW_RUN_NAME=name    — optional Nextflow -name (omit by default so each run gets a unique auto name).
 #                                     If set, must match Nextflow: ^[a-z](?:[a-z\d]|[-_](?=[a-z\d])){0,79}$
 #   GLASS_NEXTFLOW_SKIP_ENV_SETUP=1 — skip auto-activation of glass-nextflow + uv venv (you pre-activate manually)
+#   GLASS_NEXTFLOW_SKIP_CONFIG_SNAPSHOT=1 — use live config.ini path for the whole run (not recommended)
 #   GLASS_CONDA_ENV_NAME=name       — conda/mamba env to activate (default: glass-nextflow)
 #
+
+#SBATCH --job-name=GLASS
+#SBATCH --output=GLASS_%j.out
+#SBATCH --error=GLASS_%j.err
+#SBATCH --time=48:00:00
+#SBATCH --mem=1GB
+#SBATCH --cpus-per-task=1
+#SBATCH --partition=paul
+
 
 echo "╔════════════════════════════════════════════════════════════════════════════════════════════════════════════╗"
 echo "║         +++      +++                                                                 +++      +++          ║"
@@ -91,8 +101,53 @@ else
     exit 1
 fi
 
-export GLASS_CONFIG_INI="$CONFIG_ABS"
+GLASS_USER_CONFIG_ABS="$CONFIG_ABS"
 export GLASS_LAUNCH_DIR="$REPO_ROOT"
+
+# -----------------------------------------------------------------------------
+# Freeze config for this run: all Nextflow tasks use a copy so edits to config/config.ini
+# after launch do not change glycan_model, nstruct, paths, etc. Snapshot lives under
+# results/<pdb_name>_<glycan_model>/.glass/run_config.ini (matches glass_config_json result_dir).
+# With -resume, an existing snapshot is kept so params stay consistent with the prior session.
+# DEBUG: GLASS_NEXTFLOW_SKIP_CONFIG_SNAPSHOT=1 uses the original file path (unsafe if you edit mid-run).
+# -----------------------------------------------------------------------------
+_glass_ini_get() {
+    local _key="$1" _file="$2"
+    grep -m1 -E "^${_key}[[:space:]]*=" "$_file" 2>/dev/null | cut -d'=' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed 's/[[:space:]]*#.*$//'
+}
+
+CONFIG_PIPELINE_ABS="$GLASS_USER_CONFIG_ABS"
+if [[ "${GLASS_NEXTFLOW_SKIP_CONFIG_SNAPSHOT:-0}" != "1" ]]; then
+    _snap_pdb="$(_glass_ini_get pdb_name "$GLASS_USER_CONFIG_ABS")"
+    _snap_gly="$(_glass_ini_get glycan_model "$GLASS_USER_CONFIG_ABS")"
+    [[ -z "${_snap_gly// }" ]] && _snap_gly="no_glycans"
+    if [[ -n "${_snap_pdb// }" ]]; then
+        _snap_dir="${REPO_ROOT}/results/${_snap_pdb}_${_snap_gly}/.glass"
+        CONFIG_SNAPSHOT="${_snap_dir}/run_config.ini"
+        mkdir -p "$_snap_dir"
+        _want_resume=0
+        for _a in "${PASSTHRU_ARGS[@]:-}"; do
+            if [[ "$_a" == "-resume" ]]; then
+                _want_resume=1
+                break
+            fi
+        done
+        if [[ "$_want_resume" -eq 1 ]] && [[ -f "$CONFIG_SNAPSHOT" ]]; then
+            [[ "${GLASS_NEXTFLOW_DEBUG:-0}" == "1" ]] && echo "[DEBUG] Using frozen config (resume): $CONFIG_SNAPSHOT" >&2
+        else
+            cp -f "$GLASS_USER_CONFIG_ABS" "$CONFIG_SNAPSHOT"
+            [[ "${GLASS_NEXTFLOW_DEBUG:-0}" == "1" ]] && echo "[DEBUG] Wrote frozen config snapshot: $CONFIG_SNAPSHOT (source: $GLASS_USER_CONFIG_ABS)" >&2
+        fi
+        CONFIG_PIPELINE_ABS="$(realpath "$CONFIG_SNAPSHOT")"
+    else
+        echo "[GLASS] Warning: pdb_name not found in config; using live config path (no snapshot): $GLASS_USER_CONFIG_ABS" >&2
+    fi
+else
+    [[ "${GLASS_NEXTFLOW_DEBUG:-0}" == "1" ]] && echo "[DEBUG] GLASS_NEXTFLOW_SKIP_CONFIG_SNAPSHOT=1 — tasks read config from: $GLASS_USER_CONFIG_ABS" >&2
+fi
+
+export GLASS_CONFIG_INI="$CONFIG_PIPELINE_ABS"
+export GLASS_CONFIG_INI_SOURCE="$GLASS_USER_CONFIG_ABS"
 
 # -----------------------------------------------------------------------------
 # Ensure glass-nextflow (Nextflow) + project uv venv (Python deps) are active in this shell.
@@ -316,8 +371,8 @@ fi
 PARAMS_JSON="${GLASS_NEXTFLOW_PARAMS_JSON:-}"
 if [[ -z "$PARAMS_JSON" ]]; then
     PARAMS_JSON="$(mktemp "${TMPDIR:-/tmp}/glass_nextflow_params.XXXXXX.json")"
-    GLASS_LAUNCH_DIR="$REPO_ROOT" GLASS_CONFIG_INI="$CONFIG_ABS" \
-        "$PYTHON_BIN" "$REPO_ROOT/workflows/nextflow/glass_config_json.py" "$CONFIG_ABS" >"$PARAMS_JSON"
+    GLASS_LAUNCH_DIR="$REPO_ROOT" GLASS_CONFIG_INI="$CONFIG_PIPELINE_ABS" \
+        "$PYTHON_BIN" "$REPO_ROOT/workflows/nextflow/glass_config_json.py" "$CONFIG_PIPELINE_ABS" >"$PARAMS_JSON"
 fi
 
 WORK_DIR="${GLASS_NEXTFLOW_WORKDIR:-$REPO_ROOT/.nextflow_work}"
@@ -347,7 +402,8 @@ if [[ -n "${GLASS_NEXTFLOW_RUN_NAME:-}" ]]; then
 fi
 
 if [[ "${GLASS_NEXTFLOW_DEBUG:-0}" == "1" ]]; then
-    echo "[DEBUG] CONFIG_ABS=$CONFIG_ABS"
+    echo "[DEBUG] GLASS_CONFIG_INI_SOURCE=$GLASS_USER_CONFIG_ABS"
+    echo "[DEBUG] GLASS_CONFIG_INI (frozen pipeline)=$CONFIG_PIPELINE_ABS"
     echo "[DEBUG] PARAMS_JSON=$PARAMS_JSON"
     echo "[DEBUG] GLASS_PYTHON=${GLASS_PYTHON:-}"
     echo "[DEBUG] Nextflow command: ${CMD[*]} ${PASSTHRU_ARGS[*]}"
