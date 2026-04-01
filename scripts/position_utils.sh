@@ -19,10 +19,11 @@ parse_positions() {
     local ranges_trimmed
     ranges_trimmed=$(echo "$ranges" | tr -d ' ' | tr '[:upper:]' '[:lower:]')
 
+    # Restrict to chain_id: same N→C order as get_chain_residue_order (first ATOM row per residue).
     if [[ "$ranges_trimmed" == "all" ]]; then
         grep -E "^(ATOM|HETATM)" "$pdb_file" | \
-            awk '{resnum=substr($0, 23, 4)+0; print resnum}' | \
-            sort -nu
+            awk -v ch="$chain_id" 'substr($0, 22, 1) == ch { print substr($0, 23, 4) + 0 }' | \
+            awk '!seen[$0]++'
         return
     fi
 

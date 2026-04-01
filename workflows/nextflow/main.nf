@@ -261,6 +261,32 @@ process ANALYZE {
     val(true), emit: done
 }
 
+process POSITION_RUN_AUDIT {
+    tag 'position_run_audit'
+    label 'nf_light'
+    cpus 1
+    afterScript = {
+        def safe = task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')
+        """
+        bash '${params.launch_dir}/scripts/nextflow_copy_task_logs.sh' '${params.launch_dir}' '${params.result_dir}' 'position_run_audit' '${safe}'
+        """.stripIndent()
+    }
+
+    input:
+    val _ready
+
+    script:
+    """
+    cd '${params.launch_dir}'
+    bash scripts/position_run_audit.sh \\
+      '${params.launch_dir}' \\
+      '${params.result_dir}' \\
+      '${params.positions_list}'
+    """
+    output:
+    val(true), emit: done
+}
+
 // -----------------------------------------------------------------------------
 // Entry workflow (single block for compatibility across Nextflow 24+)
 // -----------------------------------------------------------------------------
@@ -289,10 +315,12 @@ workflow {
         GLYCAN_MASKING_BATCH(ch_jobs)
         GLYCAN_MERGE_POSITIONS(GLYCAN_MASKING_BATCH.out.done.collect())
         GLOBAL_MERGE(GLYCAN_MERGE_POSITIONS.out.done)
-        ANALYZE(GLOBAL_MERGE.out.done)
+        POSITION_RUN_AUDIT(GLOBAL_MERGE.out.done)
+        ANALYZE(POSITION_RUN_AUDIT.out.done)
     } else {
         GLYCAN_MASKING_NOGLY(ch_pos)
         GLOBAL_MERGE(GLYCAN_MASKING_NOGLY.out.done.collect())
-        ANALYZE(GLOBAL_MERGE.out.done)
+        POSITION_RUN_AUDIT(GLOBAL_MERGE.out.done)
+        ANALYZE(POSITION_RUN_AUDIT.out.done)
     }
 }

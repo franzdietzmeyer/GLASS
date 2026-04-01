@@ -3,7 +3,9 @@
 # Run Rosetta glycan masking for a single position (one Snakemake job).
 # Usage: run_one_position.sh <pdb_path> <position_string> <enhanced> <glycan_model> <container> <job_output_dir> [batch_id] [batch_size] [total_nstruct]
 # Optional batch args (7,8,9): when provided, use {pdb_name}_batch{N}.sc and batch-specific nstruct.
-# Output: <job_output_dir>/{pdb_name}_position{position_id}.sc or {pdb_name}_position{position_id}_batch{N}.sc
+# Output: <job_output_dir>/{pdb_name}_position{position_id}.sc, or (glycans batch mode)
+#   <job_output_dir>/<GLASS_BATCH_SCORE_SUBDIR>/{pdb_name}_position{position_id}_batch{N}.sc
+#   (default GLASS_BATCH_SCORE_SUBDIR=batch_scores — merged file stays at job_output_dir root).
 # Reads nstruct and RMSD_filter from config.ini in the script directory (unless overridden by batch args).
 #
 set -euo pipefail
@@ -21,6 +23,14 @@ fi
 nstruct=$(grep "^nstruct" "$CONFIG_FILE" | cut -d'=' -f2 | tr -d ' ')
 rmsd_filter=$(grep "^RMSD_filter" "$CONFIG_FILE" | cut -d'=' -f2 | tr -d ' ')
 [[ -n "$nstruct" && -n "$rmsd_filter" ]] || { echo "Error: nstruct or RMSD_filter missing in config.ini." >&2; exit 1; }
+
+# Chain ID for Rosetta residue selection (PDB num + chain, e.g. 123A) — required for multimers.
+chain_id_raw=$(grep -m1 "^chain_id" "$CONFIG_FILE" | cut -d'=' -f2- | sed 's/#.*$//' | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+chain_id="${chain_id_raw%% *}"
+if [[ -z "$chain_id" ]]; then
+    echo "Error: chain_id missing or empty in $CONFIG_FILE" >&2
+    exit 1
+fi
 
 pdb_path="$1"
 positions="$2"
@@ -42,6 +52,10 @@ position_id="${positions//,/_}"
 
 mkdir -p "$job_output_dir"
 
+# Subfolder for per-batch scorefiles only (glycans batching). Merged per-position .sc stays in job_output_dir.
+# DEBUG: override with GLASS_BATCH_SCORE_SUBDIR=mydir
+GLASS_BATCH_SCORE_SUBDIR="${GLASS_BATCH_SCORE_SUBDIR:-batch_scores}"
+
 # Batch mode: compute scorefile name and effective nstruct
 if [[ -n "$batch_id" && -n "$batch_size" && "$batch_id" =~ ^[0-9]+$ && "$batch_size" =~ ^[0-9]+$ ]]; then
     start_index=$(( (batch_id - 1) * batch_size ))
@@ -55,9 +69,15 @@ if [[ -n "$batch_id" && -n "$batch_size" && "$batch_id" =~ ^[0-9]+$ && "$batch_s
         effective_nstruct="$remaining"
     fi
     scorefile_name="${pdb_name}_position${position_id}_batch${batch_id}.sc"
+    mkdir -p "${job_output_dir}/${GLASS_BATCH_SCORE_SUBDIR}"
+    # Path relative to -out:path:all (Rosetta writes batch scorefile here; PDBs remain in job_output_dir).
+    scorefile_for_rosetta="${GLASS_BATCH_SCORE_SUBDIR}/${scorefile_name}"
+    scorefile_path="${job_output_dir}/${GLASS_BATCH_SCORE_SUBDIR}/${scorefile_name}"
 else
     effective_nstruct="$nstruct"
     scorefile_name="${pdb_name}_position${position_id}.sc"
+    scorefile_for_rosetta="${scorefile_name}"
+    scorefile_path="${job_output_dir}/${scorefile_name}"
 fi
 
 if [[ "$positions" =~ , ]]; then
@@ -66,14 +86,24 @@ else
     suffix="$positions"
 fi
 
+# Rosetta Index / SimpleGlycosylateMover: use PDB number + chain (e.g. 123A,124A) so the site is unambiguous in multimers.
+# DEBUG: GLASS_MASKING_DEBUG=1 prints qualified start string.
+start_qualified=""
+IFS=',' read -ra _pos_parts <<< "${positions//_/,}"
+for _p in "${_pos_parts[@]}"; do
+    _p="${_p//[[:space:]]/}"
+    [[ -z "$_p" ]] && continue
+    if [[ -n "$start_qualified" ]]; then
+        start_qualified+=","
+    fi
+    start_qualified+="${_p}${chain_id}"
+done
+
 LOG_FILE="${job_output_dir}/run.log"
-echo "Starting single-position run: $positions -> $job_output_dir (scorefile=$scorefile_name, nstruct=$effective_nstruct)"
+echo "Starting single-position run: positions=${positions} chain=${chain_id} rosetta_start=${start_qualified} -> $job_output_dir (scorefile=${scorefile_for_rosetta}, nstruct=$effective_nstruct)"
 
 # Debug toggle (easy to remove): set GLASS_MASKING_DEBUG=1 to print more info.
 GLASS_MASKING_DEBUG="${GLASS_MASKING_DEBUG:-0}"
-
-# Determine expected scorefile path early.
-scorefile_path="${job_output_dir}/${scorefile_name}"
 
 # Helper: detect whether an existing scorefile is just our minimal placeholder.
 is_placeholder_scorefile() {
@@ -88,6 +118,18 @@ is_placeholder_scorefile() {
     l2="$(sed -n '2p' "$f" 2>/dev/null || true)"
     [[ "$l1" == "SEQUENCE" && "$l2" == "SCORE" ]]
 }
+
+# Legacy: batch scorefiles used to sit in job_output_dir root; move into batch_scores/ once so cache hits.
+if [[ -n "$batch_id" && -n "$batch_size" && "$batch_id" =~ ^[0-9]+$ && "$batch_size" =~ ^[0-9]+$ ]]; then
+    if [[ ! -f "${scorefile_path}" ]]; then
+        _legacy_batch_sc="${job_output_dir}/${scorefile_name}"
+        if [[ -f "${_legacy_batch_sc}" ]] && ! is_placeholder_scorefile "${_legacy_batch_sc}"; then
+            mkdir -p "$(dirname "${scorefile_path}")"
+            mv -f "${_legacy_batch_sc}" "${scorefile_path}"
+            [[ "${GLASS_MASKING_DEBUG}" == "1" ]] && echo "[DEBUG] Migrated legacy batch scorefile -> ${scorefile_path}" >&2
+        fi
+    fi
+fi
 
 # If a non-placeholder scorefile already exists, do not rerun Rosetta.
 if [[ -f "${scorefile_path}" ]] && ! is_placeholder_scorefile "${scorefile_path}"; then
@@ -117,9 +159,9 @@ case "$container_backend" in
     apptainer run -B "$(pwd)":/workspace -W /workspace "$image" rosetta_scripts \
         -s "$pdb_path" \
         -parser:protocol "scripts/Glycan_Masking.xml" \
-        -parser:script_vars start="$positions" enhanced="$enhanced" protocol="$glycan_model" rmsd_cutoff="$rmsd_filter" \
+        -parser:script_vars start="$start_qualified" enhanced="$enhanced" protocol="$glycan_model" rmsd_cutoff="$rmsd_filter" \
         -out:suffix _"$suffix" \
-        -scorefile "$scorefile_name" \
+        -scorefile "$scorefile_for_rosetta" \
         -out:path:all "$job_output_dir" \
         -nstruct "$effective_nstruct" \
         -in:file:native "$pdb_path" \
@@ -140,9 +182,9 @@ case "$container_backend" in
     docker run -u "$(id -u):$(id -g)" -v "$(pwd)":/workspace -w /workspace "$container" rosetta_scripts \
         -s "$pdb_path" \
         -parser:protocol "scripts/Glycan_Masking.xml" \
-        -parser:script_vars start="$positions" enhanced="$enhanced" protocol="$glycan_model" rmsd_cutoff="$rmsd_filter" \
+        -parser:script_vars start="$start_qualified" enhanced="$enhanced" protocol="$glycan_model" rmsd_cutoff="$rmsd_filter" \
         -out:suffix _"$suffix" \
-        -scorefile "$scorefile_name" \
+        -scorefile "$scorefile_for_rosetta" \
         -out:path:all "$job_output_dir" \
         -nstruct "$effective_nstruct" \
         -in:file:native "$pdb_path" \
@@ -161,6 +203,7 @@ esac
 if [[ "${GLASS_MASKING_DEBUG}" == "1" ]]; then
     echo "[DEBUG] Rosetta exit code: ${rosetta_exit_code}" >&2
     echo "[DEBUG] Expected scorefile: ${scorefile_path}" >&2
+    echo "[DEBUG] chain_id=${chain_id} start_qualified=${start_qualified}" >&2
 fi
 
 # If Rosetta exited non-zero OR the expected scorefile is missing, write a placeholder.

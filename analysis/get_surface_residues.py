@@ -26,6 +26,8 @@ import sys
 import warnings
 import numpy as np
 
+from ptm_terminal_filter import filter_ptm_terminal_by_chain_order
+
 # DEBUG: Set to True to enable verbose output globally (overrides --debug flag)
 DEBUG = False
 
@@ -55,7 +57,8 @@ def _filter_ptm_terminal_pyrosetta(pose, chain_id: str, pdb_numbers: list[int], 
     """Drop PDB numbers in the first/last four *pose* residues of the chain (Rosetta sequence order)."""
     pdb_info = pose.pdb_info()
     chain_indices = [i for i in range(1, pose.total_residue() + 1) if pdb_info.chain(i) == chain_id]
-    L = len(chain_indices)
+    pdb_per = [int(pdb_info.number(pi)) for pi in chain_indices]
+    L = len(pdb_per)
     if L < 2 * _PTM_TERMINAL_EXCLUDE_EACH_END + 1:
         if debug:
             print(
@@ -63,29 +66,10 @@ def _filter_ptm_terminal_pyrosetta(pose, chain_id: str, pdb_numbers: list[int], 
                 file=sys.stderr,
             )
         return []
-    first_ord = _PTM_TERMINAL_EXCLUDE_EACH_END + 1
-    last_ord = L - _PTM_TERMINAL_EXCLUDE_EACH_END
-    # Map PDB number -> ordinal along chain (first occurrence if duplicate numbers / insertions).
-    ordinal_by_pdb: dict[int, int] = {}
-    for o, pi in enumerate(chain_indices, start=1):
-        n = int(pdb_info.number(pi))
-        if n not in ordinal_by_pdb:
-            ordinal_by_pdb[n] = o
-    out: list[int] = []
-    skipped = 0
-    for p in pdb_numbers:
-        o = ordinal_by_pdb.get(int(p))
-        if o is None:
-            skipped += 1
-            continue
-        if o < first_ord or o > last_ord:
-            skipped += 1
-            continue
-        out.append(int(p))
-    out.sort()
-    if skipped and debug:
+    out = filter_ptm_terminal_by_chain_order(pdb_per, pdb_numbers, _PTM_TERMINAL_EXCLUDE_EACH_END)
+    if debug and len(out) < len(pdb_numbers):
         print(
-            f"[DEBUG] Excluded {skipped} residue(s) within {_PTM_TERMINAL_EXCLUDE_EACH_END} positions of chain termini (PTM / Rosetta)",
+            f"[DEBUG] Excluded {len(pdb_numbers) - len(out)} residue(s) within {_PTM_TERMINAL_EXCLUDE_EACH_END} positions of chain termini (PTM / Rosetta)",
             file=sys.stderr,
         )
     return out
@@ -95,27 +79,13 @@ def _filter_ptm_terminal_biotite(
     ordered_res_ids: list[int], pdb_numbers: list[int], debug: bool
 ) -> list[int]:
     """Sequence-order terminal filter using Biotite residue order."""
-    L = len(ordered_res_ids)
-    if L < 2 * _PTM_TERMINAL_EXCLUDE_EACH_END + 1:
+    pdb_per = [int(r) for r in ordered_res_ids]
+    if len(pdb_per) < 2 * _PTM_TERMINAL_EXCLUDE_EACH_END + 1:
         return []
-    first_ord = _PTM_TERMINAL_EXCLUDE_EACH_END + 1
-    last_ord = L - _PTM_TERMINAL_EXCLUDE_EACH_END
-    ordinal = {int(r): i + 1 for i, r in enumerate(ordered_res_ids)}
-    out: list[int] = []
-    skipped = 0
-    for p in pdb_numbers:
-        o = ordinal.get(int(p))
-        if o is None:
-            skipped += 1
-            continue
-        if o < first_ord or o > last_ord:
-            skipped += 1
-            continue
-        out.append(int(p))
-    out.sort()
-    if skipped and debug:
+    out = filter_ptm_terminal_by_chain_order(pdb_per, pdb_numbers, _PTM_TERMINAL_EXCLUDE_EACH_END)
+    if debug and len(out) < len(pdb_numbers):
         print(
-            f"[DEBUG] Excluded {skipped} residue(s) near termini (PTM / Rosetta)",
+            f"[DEBUG] Excluded {len(pdb_numbers) - len(out)} residue(s) near termini (PTM / Rosetta)",
             file=sys.stderr,
         )
     return out

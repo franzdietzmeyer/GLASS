@@ -187,7 +187,7 @@ class PlottingUtils:
     
     def plot_glycan_results(self, result_df: pd.DataFrame, motif: str, glycan_positions: List[int], 
                           removed_positions: List[int], percentage_cutoff: float, ptm_cutoff: float, 
-                          construct: str) -> None:
+                          construct: str, output_name_tag: str = "glycans") -> None:
         """
         Plot the glycan masking analysis results.
         
@@ -199,6 +199,7 @@ class PlottingUtils:
             percentage_cutoff (float): Percentage cutoff for score filtering
             ptm_cutoff (float): PTM prediction metric cutoff
             construct (str): Construct name for plot title
+            output_name_tag: Suffix for PNG/CSV basenames (e.g. glycans vs no_glycans).
         """
         if self.debug:
             print(f"[DEBUG] Creating glycan results plot for construct: {construct}")
@@ -426,12 +427,13 @@ class PlottingUtils:
         plt.subplots_adjust(top=0.92, left=0.10, right=0.95, bottom=0.15)  # Tight to edges, space for labels
         
         # Save plot
-        output_file = os.path.join(self.output_dir, f"glycan_analysis_{construct}.png")
+        safe_tag = str(output_name_tag).replace(os.sep, "_").replace(" ", "_")
+        output_file = os.path.join(self.output_dir, f"glycan_analysis_{construct}_{safe_tag}.png")
         plt.savefig(output_file, dpi=300, bbox_inches='tight')
         plt.close()  # Close the figure to free memory
 
         # Save plotted data as CSV for easy recreation (e.g. in Prism)
-        csv_file = os.path.join(self.output_dir, f"glycan_analysis_{construct}.csv")
+        csv_file = os.path.join(self.output_dir, f"glycan_analysis_{construct}_{safe_tag}.csv")
         export_cols = ['glycan_pos', 'PTMPredictionMetric', 'd_total_score', 'color', 'marker']
         if 'sequon_type' in result_df.columns:
             export_cols.append('sequon_type')
@@ -443,7 +445,8 @@ class PlottingUtils:
             print(f"[DEBUG] Glycan results plot saved to: {output_file}")
     
     def plot_ptm_by_position(self, df: pd.DataFrame, wild_type_positions: List[int], 
-                            name_label: str, ptm_column: str = None) -> None:
+                            name_label: str, ptm_column: str = None,
+                            output_name_tag: str = "no_glycans") -> None:
         """
         Plot the consensus PTMPredictionMetric by position for the given dataframe.
         
@@ -521,7 +524,8 @@ class PlottingUtils:
         plt.tight_layout()
         
         # Save plot
-        output_file = os.path.join(self.output_dir, f"ptm_analysis_{name_label}.png")
+        safe_tag = str(output_name_tag).replace(os.sep, "_").replace(" ", "_")
+        output_file = os.path.join(self.output_dir, f"ptm_analysis_{name_label}_{safe_tag}.png")
         plt.savefig(output_file, dpi=300, bbox_inches='tight')
         plt.close()  # Close the figure to free memory
         

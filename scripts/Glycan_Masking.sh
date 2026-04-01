@@ -69,6 +69,12 @@ if [ -z "$rmsd_filter" ]; then
     exit 1
 fi
 
+chain_id=$(grep -m1 "^chain_id" "$CONFIG_FILE" | cut -d'=' -f2- | sed 's/#.*$//' | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | awk '{print $1}')
+if [ -z "$chain_id" ]; then
+    echo "Error: chain_id not found in config.ini!" >&2
+    exit 1
+fi
+
 # Container backend selection (docker or apptainer); default to docker
 container_backend=$(grep "^container_backend" "$CONFIG_FILE" | cut -d'=' -f2 | tr -d '[:space:]')
 if [ -z "$container_backend" ]; then
@@ -91,6 +97,17 @@ total_nstruct="${8:-$nstruct}"
 
 # Handle multiple positions (comma-separated) for grouped runs
 positions="$2"
+
+start_qualified=""
+IFS=',' read -ra _pos_parts <<< "${positions//_/,}"
+for _p in "${_pos_parts[@]}"; do
+    _p=$(echo "$_p" | tr -d ' ')
+    [ -z "$_p" ] && continue
+    if [ -n "$start_qualified" ]; then
+        start_qualified="${start_qualified},"
+    fi
+    start_qualified="${start_qualified}${_p}${chain_id}"
+done
 
 if [[ "$positions" =~ , ]]; then
     # Multiple positions - create a descriptive suffix
@@ -149,7 +166,7 @@ case "$container_backend" in
   apptainer run -B "$(pwd)":/workspace -W /workspace "$image" rosetta_scripts \
       -s "$1" \
       -parser:protocol "Glycan_Masking.xml" \
-      -parser:script_vars start="$positions" enhanced="$3" protocol="$4" rmsd_cutoff="$rmsd_filter" \
+      -parser:script_vars start="$start_qualified" enhanced="$3" protocol="$4" rmsd_cutoff="$rmsd_filter" \
       -out:suffix _"$suffix" \
       -scorefile "$scorefile_name"  \
       -out:path:all "$output" \
@@ -171,7 +188,7 @@ case "$container_backend" in
     docker run -v "$(pwd)":/workspace -w /workspace "$container_spec" rosetta_scripts \
       -s "$1" \
       -parser:protocol "Glycan_Masking.xml" \
-      -parser:script_vars start="$positions" enhanced="$3" protocol="$4" rmsd_cutoff="$rmsd_filter" \
+      -parser:script_vars start="$start_qualified" enhanced="$3" protocol="$4" rmsd_cutoff="$rmsd_filter" \
       -out:suffix _"$suffix" \
       -scorefile "$scorefile_name"  \
       -out:path:all "$output" \

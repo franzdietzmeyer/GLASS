@@ -217,21 +217,23 @@ This script will:
 #### Analysis Outputs
 
 After successful completion, you'll find analysis results in:
+- `results/{pdb_name}_{glycan_model}/GLASS_position_audit.txt`: Combined report — **(1)** why positions were included or excluded from `positions.txt` (terminal/Cys/exclude/grouped) and **(2)** per-position Rosetta outcomes. Success is judged by **PDB files** in `out_by_position/<id>/` (vs `-nstruct` in `run.log` for full/partial); log hints are used when no PDBs are produced (e.g. RMSD filter). See also `positions/positions_preparation_report.txt` and `position_rosetta_run_audit.txt`.
 - `results/{pdb_name}_{glycan_model}/analysis_results/`: Contains all analysis outputs
 - `results/{pdb_name}_{glycan_model}/{pdb_name}.sc`: Merged Rosetta score file (all positions, no position in filename)
-- `results/{pdb_name}_{glycan_model}/out_by_position/{position_id}/{pdb_name}_position{position_id}.sc`: Per-position scorefiles for easier identification
+- `results/{pdb_name}_{glycan_model}/out_by_position/{position_id}/{pdb_name}_position{position_id}.sc`: Per-position **merged** scorefile (glycans batch mode merges per-batch files from `out_by_position/{position_id}/batch_scores/` into this file at the position directory root)
 - `results/{pdb_name}_{glycan_model}/position_run_summary.txt`: Summary of which positions ran successfully vs failed/incomplete (printed to stdout as well)
 
 **For glycan mode (`glycan_model = glycans`):**
-- `glycan_analysis_{pdb_name}.png`: Main glycan masking analysis plot
-- `glycan_analysis_{pdb_name}.csv`: Plotted data (PTMPredictionMetric, d_total_score, etc.) for recreation in Prism or other tools
+- `glycan_analysis_{pdb_name}_glycans.png`: Main glycan masking analysis plot (d_total_score vs PTMPredictionMetric)
+- `glycan_analysis_{pdb_name}_glycans.csv`: Plotted data (PTMPredictionMetric, d_total_score, etc.) for recreation in Prism or other tools
 - `summary_analysis_{pdb_name}.png`: Summary plot with key metrics
 - `score_distribution_*.png`: Score distribution plots
 - `correlation_matrix.png`: Correlation analysis between metrics
 - `position_vs_score_*.png`: Position-based score analysis
 
 **For PTM mode (`glycan_model = no_glycans`):**
-- `ptm_analysis_{pdb_name}.png`: Main PTM analysis plot with sequon annotations
+- `ptm_analysis_{pdb_name}_no_glycans.png`: Main PTM analysis plot with sequon annotations
+- `ptm_analysis_{pdb_name}_no_glycans.csv`: Plotted means/stds for recreation
 
 #### Manual Analysis (Advanced Users)
 
@@ -249,6 +251,7 @@ python main_analysis.py --mode glycan \
     --percentage-cutoff 5 \
     --ptm-cutoff 0.5 \
     --distance-cutoff 5.0 \
+    --glycan-model glycans \
     --output-dir "../results/PDB_NAME_glycans/analysis_results"
 
 # Run PTM analysis (no_glycans mode)
@@ -257,6 +260,7 @@ python main_analysis.py --mode no_glycans \
     --pdb-file "../input_files/PDB_NAME.pdb" \
     --construct "r_WT_Mat_0001_0004" \
     --chain-id "A" \
+    --glycan-model no_glycans \
     --output-dir "../results/PDB_NAME_no_glycans/analysis_results"
 ```
 
@@ -283,16 +287,16 @@ Upon successful execution of the pipeline, the following key outputs will be gen
 #### Analysis Output Files
 
 **Glycan Mode (`glycan_model = glycans`):**
-- `glycan_analysis_{pdb_name}.png`: Main glycan masking analysis plot showing PTM scores vs positions
-- `glycan_analysis_{pdb_name}.csv`: Plotted data for recreation
+- `glycan_analysis_{pdb_name}_glycans.png`: Main glycan masking analysis plot (d_total_score vs PTMPredictionMetric)
+- `glycan_analysis_{pdb_name}_glycans.csv`: Plotted data for recreation
 - `summary_analysis_{pdb_name}.png`: Comprehensive summary plot with key metrics and statistics
 - `score_distribution_*.png`: Distribution plots for different score metrics
 - `correlation_matrix.png`: Correlation analysis between structural and PTM metrics
 - `position_vs_score_*.png`: Position-based analysis of score distributions
 
 **PTM Mode (`glycan_model = no_glycans`):**
-- `ptm_analysis_{pdb_name}.png`: Main PTM analysis plot with sequon annotations and position-based analysis
-- `ptm_analysis_{pdb_name}.csv`: Plotted data for recreation
+- `ptm_analysis_{pdb_name}_no_glycans.png`: Main PTM analysis plot with sequon annotations and position-based analysis
+- `ptm_analysis_{pdb_name}_no_glycans.csv`: Plotted data for recreation
 
 #### Score File Contents
 

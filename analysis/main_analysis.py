@@ -106,7 +106,14 @@ Examples:
     
     # PTM analysis specific arguments
     ptm_group = parser.add_argument_group('PTM Analysis Options')
-    
+    ptm_group.add_argument(
+        '--glycan-model',
+        dest='glycan_model',
+        choices=['glycans', 'no_glycans'],
+        default=None,
+        help='Pipeline glycan_model label for output filenames (default: infer from --mode)',
+    )
+
     return parser
 
 
@@ -273,7 +280,8 @@ def run_glycan_analysis(args):
         removed_positions=removed_positions,
         percentage_cutoff=args.percentage_cutoff,
         ptm_cutoff=args.ptm_cutoff,
-        construct=args.construct
+        construct=args.construct,
+        output_name_tag=args.glycan_model,
     )
     
     print("\nGlycan analysis complete!")
@@ -293,7 +301,8 @@ def run_ptm_analysis(args):
         input_file=args.scorefile,
         chain_id=args.chain_id,
         pdb_file=args.pdb_file,
-        output_dir=args.output_dir
+        output_dir=args.output_dir,
+        glycan_model_tag=args.glycan_model,
     )
 
 
@@ -309,6 +318,9 @@ def main():
     
     # Set intelligent defaults based on mode
     set_intelligent_defaults(args)
+
+    if args.glycan_model is None:
+        args.glycan_model = 'glycans' if args.mode == 'glycan' else 'no_glycans'
     
     # Create output directory
     os.makedirs(args.output_dir, exist_ok=True)
@@ -330,6 +342,7 @@ def main():
         print(f"PTM cutoff: {args.ptm_cutoff}")
         print(f"Distance cutoff: {args.distance_cutoff}")
         print(f"Chain ID: {args.chain_id}")
+        print(f"Glycan model (output tag): {args.glycan_model}")
         
         if not validate_glycan_args(args):
             sys.exit(1)
@@ -340,6 +353,7 @@ def main():
         print(f"Score file: {args.scorefile}")
         print(f"PDB file: {args.pdb_file}")
         print(f"Chain ID: {args.chain_id}")
+        print(f"Glycan model (output tag): {args.glycan_model}")
         
         if not validate_ptm_args(args):
             sys.exit(1)

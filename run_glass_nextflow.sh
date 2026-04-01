@@ -4,12 +4,10 @@
 # =============================================================================
 #
 # Prerequisites (recommended split — see README “Nextflow”):
-#   A) Minimal conda env: only Nextflow + OpenJDK  (environments/nextflow.yml)
-#   B) Project Python: uv venv + uv pip install (same as main README), e.g. venv/GLASS
-#   Activate conda first, then: source venv/GLASS/bin/activate
-#   So PATH has both nextflow (conda) and python/uv deps (venv). Alternatively set:
-#     export GLASS_NEXTFLOW_CONDA_PREFIX=/path/to/envs/glass-nextflow
-#   so this script prepends that bin/ to PATH when nextflow is not found.
+#   A) Minimal conda env: only Nextflow + OpenJDK  (environments/nextflow.yml), name: glass-nextflow
+#   B) Project Python: uv venv at venv/.GLASS (preferred) or venv/GLASS (legacy README) + uv pip install
+#   This script tries to activate both if they are not already active (see DEBUG: GLASS_NEXTFLOW_SKIP_ENV_SETUP).
+#   Alternatively set GLASS_NEXTFLOW_CONDA_PREFIX so this script prepends that bin/ when nextflow is not on PATH.
 #
 # Usage:
 #   ./run_glass_nextflow.sh local
@@ -28,6 +26,8 @@
 #   GLASS_NEXTFLOW_CONDA_PREFIX=    — path to conda env with nextflow (if not on PATH)
 #   GLASS_NEXTFLOW_RUN_NAME=name    — optional Nextflow -name (omit by default so each run gets a unique auto name).
 #                                     If set, must match Nextflow: ^[a-z](?:[a-z\d]|[-_](?=[a-z\d])){0,79}$
+#   GLASS_NEXTFLOW_SKIP_ENV_SETUP=1 — skip auto-activation of glass-nextflow + uv venv (you pre-activate manually)
+#   GLASS_CONDA_ENV_NAME=name       — conda/mamba env to activate (default: glass-nextflow)
 #
 
 echo "╔════════════════════════════════════════════════════════════════════════════════════════════════════════════╗"
@@ -95,8 +95,155 @@ export GLASS_CONFIG_INI="$CONFIG_ABS"
 export GLASS_LAUNCH_DIR="$REPO_ROOT"
 
 # -----------------------------------------------------------------------------
+# Ensure glass-nextflow (Nextflow) + project uv venv (Python deps) are active in this shell.
+# Order: conda/mamba first, then source venv (matches README). DEBUG: GLASS_NEXTFLOW_SKIP_ENV_SETUP=1 to skip.
+# -----------------------------------------------------------------------------
+GLASS_CONDA_ENV_NAME="${GLASS_CONDA_ENV_NAME:-glass-nextflow}"
+
+_glass_conda_env_ready() {
+    local name="$1"
+    [[ -n "${CONDA_PREFIX:-}" ]] || return 1
+    [[ "$(basename "$CONDA_PREFIX")" == "$name" ]] || return 1
+    [[ -x "${CONDA_PREFIX}/bin/nextflow" ]] || return 1
+    return 0
+}
+
+# Source conda.sh so `conda activate` works in non-interactive bash (same as manual "conda activate env").
+# DEBUG: GLASS_NEXTFLOW_DEBUG=1 prints which path was used.
+_glass_source_conda_sh() {
+    local base sh
+    sh=""
+    if [[ -n "${CONDA_EXE:-}" ]]; then
+        base="$(dirname "$(dirname "$CONDA_EXE")")"
+        if [[ -f "$base/etc/profile.d/conda.sh" ]]; then
+            sh="$base/etc/profile.d/conda.sh"
+        fi
+    fi
+    if [[ -z "$sh" || ! -f "$sh" ]] && command -v conda >/dev/null 2>&1; then
+        base="$(conda info --base 2>/dev/null || true)"
+        if [[ -n "$base" && -f "$base/etc/profile.d/conda.sh" ]]; then
+            sh="$base/etc/profile.d/conda.sh"
+        fi
+    fi
+    if [[ -z "$sh" || ! -f "$sh" ]] && command -v conda >/dev/null 2>&1; then
+        local conda_bin real_bin bindir
+        conda_bin="$(command -v conda)"
+        real_bin="$(readlink -f "$conda_bin" 2>/dev/null || echo "$conda_bin")"
+        bindir="$(dirname "$real_bin")"
+        base="$(dirname "$bindir")"
+        if [[ -f "$base/etc/profile.d/conda.sh" ]]; then
+            sh="$base/etc/profile.d/conda.sh"
+        fi
+    fi
+    if [[ -z "$sh" || ! -f "$sh" ]]; then
+        for base in "$HOME/mambaforge" "$HOME/miniforge3" "$HOME/miniconda3" "$HOME/anaconda3" "/opt/conda"; do
+            if [[ -f "$base/etc/profile.d/conda.sh" ]]; then
+                sh="$base/etc/profile.d/conda.sh"
+                break
+            fi
+        done
+    fi
+    if [[ -n "$sh" && -f "$sh" ]]; then
+        [[ "${GLASS_NEXTFLOW_DEBUG:-0}" == "1" ]] && echo "[DEBUG] Sourcing conda.sh: $sh" >&2
+        # shellcheck source=/dev/null
+        source "$sh"
+        return 0
+    fi
+    return 1
+}
+
+_glass_try_activate_conda() {
+    local name="$1"
+    # Prefer classic `source conda.sh` + `conda activate` (works when mamba hook / `conda shell.bash hook` is unavailable).
+    if _glass_source_conda_sh; then
+        if conda activate "$name"; then
+            return 0
+        fi
+    fi
+    if command -v conda >/dev/null 2>&1; then
+        if eval "$(conda shell.bash hook 2>/dev/null)"; then
+            conda activate "$name" && return 0
+        fi
+    fi
+    if command -v mamba >/dev/null 2>&1; then
+        if eval "$(mamba shell hook --shell bash 2>/dev/null)"; then
+            mamba activate "$name" && return 0
+        fi
+    fi
+    if command -v micromamba >/dev/null 2>&1; then
+        eval "$(micromamba shell hook -s bash 2>/dev/null)"
+        micromamba activate "$name" && return 0
+    fi
+    echo "Error: Could not activate conda env '$name'. Try: source \"\$(conda info --base)/etc/profile.d/conda.sh\" && conda activate $name" >&2
+    echo "  Or: mamba env create -n $name -f $REPO_ROOT/environments/nextflow.yml" >&2
+    return 1
+}
+
+_glass_uv_venv_ready() {
+    local vdir="$1"
+    [[ -n "${VIRTUAL_ENV:-}" ]] || return 1
+    [[ "$(realpath "$VIRTUAL_ENV")" == "$(realpath "$vdir")" ]] || return 1
+    return 0
+}
+
+_glass_try_activate_venv() {
+    local vdir="$1"
+    local act="$vdir/bin/activate"
+    if [[ ! -f "$act" ]]; then
+        echo "Error: uv venv activation script missing: $act" >&2
+        echo "  Create the env from the repo root, e.g.: uv venv --python 3.12 ${vdir#"$REPO_ROOT"/}" >&2
+        return 1
+    fi
+    # shellcheck source=/dev/null
+    source "$act"
+}
+
+# Prefer venv/.GLASS (requested default), else venv/GLASS (README legacy).
+GLASS_UV_VENV_DIR=""
+if [[ -d "$REPO_ROOT/venv/.GLASS" ]]; then
+    GLASS_UV_VENV_DIR="$REPO_ROOT/venv/.GLASS"
+elif [[ -d "$REPO_ROOT/venv/GLASS" ]]; then
+    GLASS_UV_VENV_DIR="$REPO_ROOT/venv/GLASS"
+fi
+
+if [[ "${GLASS_NEXTFLOW_SKIP_ENV_SETUP:-0}" != "1" ]]; then
+    if [[ -z "$GLASS_UV_VENV_DIR" ]]; then
+        echo "Error: No project uv venv directory found. Expected one of:" >&2
+        echo "  $REPO_ROOT/venv/.GLASS   (preferred)" >&2
+        echo "  $REPO_ROOT/venv/GLASS    (legacy)" >&2
+        echo "  Example: cd $REPO_ROOT && uv venv --python 3.12 venv/.GLASS && source venv/.GLASS/bin/activate && uv pip install -r requirements/requirements.txt" >&2
+        exit 1
+    fi
+
+    if ! _glass_conda_env_ready "$GLASS_CONDA_ENV_NAME"; then
+        if ! _glass_try_activate_conda "$GLASS_CONDA_ENV_NAME"; then
+            echo "Error: Failed to activate conda env '$GLASS_CONDA_ENV_NAME'." >&2
+            echo "  Create it with: mamba env create -n $GLASS_CONDA_ENV_NAME -f $REPO_ROOT/environments/nextflow.yml" >&2
+            echo "  (or conda env create ...). Then: mamba activate $GLASS_CONDA_ENV_NAME" >&2
+            exit 1
+        fi
+        if ! _glass_conda_env_ready "$GLASS_CONDA_ENV_NAME"; then
+            echo "Error: After activation, expected Nextflow at \${CONDA_PREFIX}/bin/nextflow for env '$GLASS_CONDA_ENV_NAME' (CONDA_PREFIX=${CONDA_PREFIX:-})." >&2
+            exit 1
+        fi
+    fi
+    [[ "${GLASS_NEXTFLOW_DEBUG:-0}" == "1" ]] && echo "[DEBUG] Conda env OK: CONDA_PREFIX=${CONDA_PREFIX:-}" >&2
+
+    if ! _glass_uv_venv_ready "$GLASS_UV_VENV_DIR"; then
+        if ! _glass_try_activate_venv "$GLASS_UV_VENV_DIR"; then
+            exit 1
+        fi
+        if ! _glass_uv_venv_ready "$GLASS_UV_VENV_DIR"; then
+            echo "Error: After sourcing $GLASS_UV_VENV_DIR/bin/activate, VIRTUAL_ENV (${VIRTUAL_ENV:-}) does not match $GLASS_UV_VENV_DIR." >&2
+            exit 1
+        fi
+    fi
+    [[ "${GLASS_NEXTFLOW_DEBUG:-0}" == "1" ]] && echo "[DEBUG] uv venv OK: VIRTUAL_ENV=${VIRTUAL_ENV:-}" >&2
+fi
+
+# -----------------------------------------------------------------------------
 # PATH: minimal conda env holds nextflow; uv venv holds python — both must be visible.
-# If you only `source venv/GLASS/bin/activate`, conda may not be on PATH; set GLASS_NEXTFLOW_CONDA_PREFIX.
+# If you only `source venv/.../activate`, conda may not be on PATH; set GLASS_NEXTFLOW_CONDA_PREFIX.
 # -----------------------------------------------------------------------------
 if [[ -n "${GLASS_NEXTFLOW_CONDA_PREFIX:-}" ]]; then
     export PATH="${GLASS_NEXTFLOW_CONDA_PREFIX}/bin:${PATH}"
@@ -133,6 +280,12 @@ fi
 
 # Params JSON: prefer GLASS venv python (uv-installed deps), then explicit override, then PATH
 PYTHON_BIN="${GLASS_NEXTFLOW_PYTHON:-}"
+if [[ -z "$PYTHON_BIN" ]] && [[ -n "${GLASS_UV_VENV_DIR:-}" ]] && [[ -x "${GLASS_UV_VENV_DIR}/bin/python" ]]; then
+    PYTHON_BIN="${GLASS_UV_VENV_DIR}/bin/python"
+fi
+if [[ -z "$PYTHON_BIN" ]] && [[ -x "$REPO_ROOT/venv/.GLASS/bin/python" ]]; then
+    PYTHON_BIN="$REPO_ROOT/venv/.GLASS/bin/python"
+fi
 if [[ -z "$PYTHON_BIN" ]] && [[ -x "$REPO_ROOT/venv/GLASS/bin/python" ]]; then
     PYTHON_BIN="$REPO_ROOT/venv/GLASS/bin/python"
 fi

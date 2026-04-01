@@ -9,6 +9,7 @@
 # Writes:
 #   <positions_dir>/positions.txt  (one position_id per line; grouped positions
 #                                   use "123_124" form, matching Snakemake ids)
+#   <positions_dir>/positions_preparation_report.txt  (why positions were included/excluded)
 
 set -euo pipefail
 
@@ -31,6 +32,27 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GLASS_ROOT="$(dirname "$SCRIPT_DIR")"
 # shellcheck source=scripts/position_utils.sh
 source "$GLASS_ROOT/scripts/position_utils.sh"
+
+# Human-readable reason for Rosetta PTM terminal window (chain ordinals).
+_glass_terminal_reason() {
+    local pos="$1"
+    local L=${#chain_residue_order[@]}
+    local i ord
+    for ((i = 0; i < L; i++)); do
+        if [[ "${chain_residue_order[$i]}" == "$pos" ]]; then
+            ord=$((i + 1))
+            if [[ "$ord" -le 4 ]]; then
+                echo "too_close_to_chain_N-terminus (ordinal ${ord}/${L}; first 4 positions excluded for Rosetta PTM)"
+                return
+            fi
+            if [[ "$ord" -ge $((L - 3)) ]]; then
+                echo "too_close_to_chain_C-terminus (ordinal ${ord}/${L}; last 4 positions excluded for Rosetta PTM)"
+                return
+            fi
+        fi
+    done
+    echo "terminal_filter (unmapped residue number — check insertion codes / chain)"
+}
 
 # ---------------------------------------------------------------------------
 # Read minimal config needed for position computation
@@ -64,12 +86,18 @@ echo "Skipping positions in the first 4 or last 4 residues of the chain (Rosetta
 # Separate grouped positions from individual positions
 grouped_runs=()
 individual_positions=()
-
+# All numeric sites requested from config (comma groups expanded) — used for the audit report.
+all_requested_from_config=()
 for item in "${parsed_output[@]}"; do
     if [[ "$item" =~ , ]]; then
         grouped_runs+=("$item")
+        IFS=',' read -ra _agr <<< "$item"
+        for _x in "${_agr[@]}"; do
+            [[ -n "${_x// /}" ]] && all_requested_from_config+=("${_x// /}")
+        done
     else
         individual_positions+=("$item")
+        all_requested_from_config+=("$item")
     fi
 done
 
@@ -136,6 +164,7 @@ echo "INFO: Added from WT (not already in list): $n_wt_added → total positions
 # means: exclude interface residues between chain_id and chains H/L, and exclude 10 and 25.
 # ---------------------------------------------------------------------------
 declare -A exclude_map
+declare -A exclude_reason
 
 if [[ -n "${exclude_positions_raw:-}" ]]; then
     # Split by comma and extract interface_* tokens.
@@ -156,7 +185,10 @@ if [[ -n "${exclude_positions_raw:-}" ]]; then
     if [[ ${#numeric_excl_items[@]} -gt 0 ]]; then
         numeric_excl_string="$(IFS=','; echo "${numeric_excl_items[*]}")"
         while IFS= read -r ex_pos; do
-            [[ -n "$ex_pos" ]] && exclude_map["$ex_pos"]=1
+            if [[ -n "$ex_pos" ]]; then
+                exclude_map["$ex_pos"]=1
+                exclude_reason["$ex_pos"]="exclude_positions (config numeric/range)"
+            fi
         done < <(parse_positions "$numeric_excl_string" "$pdb_file" "$chain_id")
     fi
 
@@ -170,7 +202,15 @@ if [[ -n "${exclude_positions_raw:-}" ]]; then
         for partners in "${interface_specs[@]}"; do
             echo "INFO: Excluding interface residues: chain ${chain_id} vs partner chains ${partners} (PyRosetta InterGroupInterfaceByVectorSelector)" >&2
             while IFS= read -r ex_pos; do
-                [[ -n "$ex_pos" ]] && exclude_map["$ex_pos"]=1
+                if [[ -n "$ex_pos" ]]; then
+                    exclude_map["$ex_pos"]=1
+                    _iface_msg="interface_exclusion (chain ${chain_id} vs partner chains ${partners})"
+                    if [[ -n "${exclude_reason[$ex_pos]:-}" ]]; then
+                        exclude_reason["$ex_pos"]="${exclude_reason[$ex_pos]}; ${_iface_msg}"
+                    else
+                        exclude_reason["$ex_pos"]="${_iface_msg}"
+                    fi
+                fi
             done < <(python3 "$iface_script" --pdb "$pdb_file" --chain "$chain_id" --partners "$partners")
         done
     fi
@@ -206,4 +246,100 @@ for pos in "${valid_individual_positions[@]}"; do
 done
 
 echo "INFO: Wrote $(wc -l < "$list_file") position entries to $list_file"
+
+# ---------------------------------------------------------------------------
+# Audit report: why positions were dropped before Rosetta (terminal / CYS / exclude / grouped)
+# ---------------------------------------------------------------------------
+report_file="${OUTPUT_DIR%/}/positions_preparation_report.txt"
+{
+    echo "# GLASS positions preparation report"
+    echo "# pdb_file=${pdb_file}"
+    echo "# chain_id=${chain_id}"
+    echo "# position_ranges=${position_ranges}"
+    echo "# generated: $(date -Iseconds)"
+    echo "#"
+    echo "# Notes:"
+    echo "# - First and Last 4 residues of the chain are excluded for Rosetta PTM / glycan masking."
+    echo ""
+    echo "## Summary"
+    echo "- Chain residue count (N→C): ${L_chain}"
+    echo "- Entries from parse_positions: ${#parsed_output[@]}"
+    echo "- Lines written to positions.txt: $(wc -l < "$list_file")"
+    echo ""
+    echo "## Grouped runs (comma-separated in config → one line in positions.txt with underscores)"
+    if [[ ${#grouped_runs[@]} -eq 0 ]]; then
+        echo "(none)"
+    else
+        for _gr in "${grouped_runs[@]}"; do
+            echo "- Input group: ${_gr}"
+            _dropped=()
+            _kept=()
+            IFS=',' read -ra _gp <<< "$_gr"
+            for _p in "${_gp[@]}"; do
+                _p="${_p// /}"
+                [[ -z "$_p" ]] && continue
+                if is_terminal_position_seq "$_p" chain_residue_order; then
+                    _dropped+=("${_p} (terminal: $(_glass_terminal_reason "$_p"))")
+                elif is_cysteine "$_p" "${cys_positions[@]}"; then
+                    _dropped+=("${_p} (cysteine: mutating would remove or disrupt a native Cys / disulfide context)")
+                else
+                    _kept+=("$_p")
+                fi
+            done
+            if [[ ${#_kept[@]} -gt 0 ]]; then
+                _line="$(IFS='_'; echo "${_kept[*]}")"
+                echo "  → kept ${_kept[*]} → positions.txt line: ${_line}"
+            else
+                echo "  → (no members kept after filters; no line written for this group)"
+            fi
+            if [[ ${#_dropped[@]} -gt 0 ]]; then
+                for _d in "${_dropped[@]}"; do
+                    echo "  → dropped from group: ${_d}"
+                done
+            fi
+        done
+    fi
+    echo ""
+    echo "## Individual numeric positions from config (exclusions)"
+    echo -e "position\treason\tdetail"
+    mapfile -t _uniq_req < <(printf '%s\n' "${all_requested_from_config[@]}" | sort -nu)
+    for pos in "${_uniq_req[@]}"; do
+        [[ -z "$pos" ]] && continue
+        _reason=""
+        _detail=""
+        if is_terminal_position_seq "$pos" chain_residue_order; then
+            _reason="terminal"
+            _detail="$(_glass_terminal_reason "$pos")"
+        elif is_cysteine "$pos" "${cys_positions[@]}"; then
+            _reason="cysteine"
+            _detail="Native Cys at this site — skipped so we do not mutate a cysteine/disulfide position"
+        elif [[ -n "${exclude_map[$pos]:-}" ]]; then
+            _reason="exclude_positions"
+            _detail="${exclude_reason[$pos]:-excluded by exclude_positions in config}"
+        else
+            continue
+        fi
+        echo -e "${pos}\t${_reason}\t${_detail}"
+    done
+    echo ""
+    echo "## Wild-type N-glyc sequon positions auto-added (if not already listed above)"
+    if [[ "$n_wt_added" -eq 0 ]]; then
+        echo "(none added)"
+    else
+        echo "Count: ${n_wt_added} (sequon starts on chain ${chain_id} that were not already in the validated list)."
+        echo "Native sequon sites detected: ${native_sequons[*]:-none}"
+    fi
+    echo ""
+    echo "## Final entries in positions.txt (one job per line; grouped = underscores)"
+    if [[ ! -s "$list_file" ]]; then
+        echo "(empty)"
+    else
+        nl=0
+        while IFS= read -r _ln || [[ -n "$_ln" ]]; do
+            nl=$((nl + 1))
+            echo "${nl}: ${_ln}"
+        done < "$list_file"
+    fi
+} > "$report_file"
+echo "INFO: Wrote position preparation audit: $report_file"
 

@@ -487,7 +487,8 @@ class PTMAnalyzer:
     
     def analyze_ptm_data(self, input_file: str, chain_id: str, pdb_file: str,
                          output_dir: str,
-                         glycan_positions_override: Optional[List[int]] = None) -> None:
+                         glycan_positions_override: Optional[List[int]] = None,
+                         glycan_model_tag: str = "no_glycans") -> None:
         """
         Main function to run PTM analysis.
 
@@ -503,6 +504,7 @@ class PTMAnalyzer:
                 addition to) the ones detected automatically from ``chain_id``.
                 Useful for dimer or multi-chain systems where glycan sites on
                 all chains should be marked as wild-type.
+            glycan_model_tag: Suffix for output files (e.g. ``no_glycans``) to distinguish runs.
         """
         print("=" * 60)
         print("PTM Analysis")
@@ -549,8 +551,9 @@ class PTMAnalyzer:
             if not wild_type_positions:
                 print(f"Warning: No glycan positions found for {name_label}, using empty list")
             
-            # Generate the plot
-            output_file = os.path.join(output_dir, f"ptm_analysis_{name_label}.png")
+            # Generate the plot (tag distinguishes glycans vs no_glycans pipeline outputs)
+            safe_tag = glycan_model_tag.replace(os.sep, "_").replace(" ", "_")
+            output_file = os.path.join(output_dir, f"ptm_analysis_{name_label}_{safe_tag}.png")
             self.plot_ptm_by_position(group_df, wild_type_positions, name_label, output_file)
             print(f"Plot saved to: {output_file}")
         

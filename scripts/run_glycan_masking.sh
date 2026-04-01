@@ -2,7 +2,8 @@
 # Run glycan masking for one position. Called by Snakemake rule glycan_masking.
 # Usage: run_glycan_masking.sh <position_id> <pdb> <config> <output_dir> [batch_id] [batch_size] [total_nstruct]
 # position_id is the position or filesystem-safe grouped id (e.g. 6 or 123_124); we pass value with comma for grouped.
-# When batch_id, batch_size, total_nstruct are provided (glycans batching mode), outputs {pdb_name}_position{position_id}_batch{batch_id}.sc.
+# When batch_id, batch_size, total_nstruct are provided (glycans batching mode), batch scorefiles are
+#   {job_output_dir}/batch_scores/{pdb_name}_position{position_id}_batch{batch_id}.sc (merged file stays in job_output_dir).
 set -euo pipefail
 
 position_id="$1"
