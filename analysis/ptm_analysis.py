@@ -238,12 +238,110 @@ class PTMAnalyzer:
                 print(f"[DEBUG] Dropped {n_invalid} row(s) with missing or non-numeric position from description")
         PTM_data['position'] = position_numeric.astype(int)
 
+        # Optional: drop structures where post-state total energy is worse than pre (native).
+        # Rosetta: lower energy is better, so exclude rows with post > pre (strictly worse).
+        # Columns come from Glycan_Masking.xml RunSimpleMetrics (native_ / final_ / r_ prefixes).
+        PTM_data = self._filter_ptm_rows_worse_post_energy(PTM_data)
+
         if self.debug:
             print(f"[DEBUG] Loaded PTM data: {len(PTM_data)} entries")
             print(f"[DEBUG] Columns: {list(PTM_data.columns)}")
             print(f"[DEBUG] Position range: {PTM_data['position'].min()} to {PTM_data['position'].max()}")
 
         return PTM_data
+
+    def _filter_ptm_rows_worse_post_energy(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Remove scorefile rows where post total energy is strictly higher (worse) than pre.
+
+        Uses ``native_total_energy`` as pre and ``final_total_energy`` as post when
+        available; falls back to ``r_total_energy`` for post if ``final_total_energy``
+        is absent (older or partial scorefiles).
+
+        Set env ``GLASS_PTM_SKIP_ENERGY_FILTER=1`` to disable this filter (DEBUG).
+        """
+        skip = os.environ.get("GLASS_PTM_SKIP_ENERGY_FILTER", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        if skip:
+            if self.debug:
+                print(
+                    "[DEBUG] GLASS_PTM_SKIP_ENERGY_FILTER set: skipping pre/post energy row filter"
+                )
+            return df
+
+        pre_col = "native_total_energy"
+        if pre_col not in df.columns:
+            print(
+                f"Warning: column '{pre_col}' not found; cannot apply pre/post energy filter. "
+                f"Available: {list(df.columns)}"
+            )
+            return df
+
+        post_col = None
+        if "final_total_energy" in df.columns:
+            post_col = "final_total_energy"
+        elif "r_total_energy" in df.columns:
+            post_col = "r_total_energy"
+
+        if post_col is None:
+            print(
+                "Warning: neither 'final_total_energy' nor 'r_total_energy' found; "
+                "skipping pre/post energy filter."
+            )
+            return df
+
+        pre = pd.to_numeric(df[pre_col], errors="coerce")
+        post = pd.to_numeric(df[post_col], errors="coerce")
+        n_before = len(df)
+
+        # Only exclude when both energies are present and post is strictly worse (higher) than pre.
+        valid = pre.notna() & post.notna()
+        n_missing = int((~valid).sum())
+        worse = valid & (post > pre)
+        n_worse = int(worse.sum())
+        keep = ~worse
+
+        out = df.loc[keep].copy()
+        n_after = len(out)
+
+        # DEBUG: delta column for inspection (easy to remove later)
+        if self.debug and n_before > 0:
+            dbg_delta = post - pre
+            print(
+                f"[DEBUG] pre/post energy filter: pre={pre_col}, post={post_col}, "
+                f"rows_in={n_before}, excluded_worse={n_worse}, "
+                f"rows_with_missing_pre_or_post_kept={n_missing}"
+            )
+            if n_worse > 0:
+                bad_idx = worse[worse].index[:5]
+                for i in bad_idx:
+                    print(
+                        f"[DEBUG]   excluded row {df.loc[i, 'description']!r}: "
+                        f"pre={pre.loc[i]:.3f} post={post.loc[i]:.3f} delta={dbg_delta.loc[i]:.3f}"
+                    )
+
+        if n_worse > 0 or n_missing > 0:
+            msg = (
+                f"PTM pre/post energy filter: excluded {n_worse} structure(s) with post > pre "
+                f"({post_col} vs {pre_col}); {n_after} row(s) remain."
+            )
+            if n_missing > 0:
+                msg += (
+                    f" ({n_missing} row(s) kept despite missing pre/post energy — not compared.)"
+                )
+            print(msg)
+
+        if out.empty:
+            raise ValueError(
+                "All rows were removed by the pre/post total energy filter "
+                f"(post must be <= pre). Check scorefile columns "
+                f"{pre_col!r} and {post_col!r}, or set GLASS_PTM_SKIP_ENERGY_FILTER=1 to debug."
+            )
+
+        return out
     
     def plot_ptm_by_position(self, df: pd.DataFrame, wild_type_positions: List[int], 
                             name_label: str, output_file: str) -> None:
@@ -362,9 +460,10 @@ class PTMAnalyzer:
             position_labels.append(label)
             sequon_strings.append(seq_csv)
 
-        # --- Colors ---
+        # --- Colors / formatting (use same output tree as the plot file — not default ./plots) ---
         from plotting_utils import PlottingUtils
-        plotter = PlottingUtils()
+        _plot_dir = os.path.dirname(os.path.abspath(output_file))
+        plotter = PlottingUtils(output_dir=_plot_dir, debug=self.debug)
         color_map = plotter.get_standard_colors()
 
         def _is_wildtype(pos_int: int) -> bool:

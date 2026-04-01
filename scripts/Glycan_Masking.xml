@@ -107,7 +107,7 @@
         		<Add mover ="neighborhood_relax"/>
         		<Add mover="post_metrics"/> 
 				<Add mover="motif_RMSD"/>
-				<!--Add filter="total_score_filter"/-->
+				<Add filter="total_score_filter"/>
 				<Add filter="RMSD_filter"/>
 				<Add mover="PTM_prediction"/>
 				<!--Add mover="full_relax"/-->
