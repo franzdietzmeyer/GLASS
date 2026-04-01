@@ -58,6 +58,54 @@ expected_nstruct_from_log() {
     echo ""
 }
 
+# Glycans parallel mode: run_batch*.log per chunk — sum -nstruct across logs; else single run.log.
+expected_nstruct_from_posdir() {
+    local posdir="$1"
+    local sum=0 n f any=0
+    shopt -s nullglob
+    for f in "${posdir}"/run_batch*.log; do
+        any=1
+        n="$(expected_nstruct_from_log "$f")"
+        [[ "$n" =~ ^[0-9]+$ ]] && sum=$((sum + n))
+    done
+    shopt -u nullglob
+    if [[ "$any" -eq 1 ]]; then
+        echo "$sum"
+        return
+    fi
+    expected_nstruct_from_log "${posdir}/run.log"
+}
+
+# Prefer run.log; else first run_batch*.log for log-based hints.
+primary_rosetta_log() {
+    local posdir="$1"
+    if [[ -f "${posdir}/run.log" ]]; then
+        echo "${posdir}/run.log"
+        return
+    fi
+    local f
+    f="$(find "${posdir}" -maxdepth 1 -type f -name 'run_batch*.log' 2>/dev/null | sort -V | head -n 1)"
+    [[ -n "$f" ]] && echo "$f"
+}
+
+# When no PDBs: scan parallel logs for a concrete failure class (first match wins).
+classify_any_parallel_log() {
+    local posdir="$1"
+    local f h
+    shopt -s nullglob
+    for f in "${posdir}"/run_batch*.log "${posdir}"/run.log; do
+        [[ -f "$f" ]] || continue
+        h="$(classify_run_log_when_no_output "$f")"
+        if [[ "$h" != "no_run_log" && "$h" != "no_successful_pdb_see_log" ]]; then
+            echo "$h"
+            shopt -u nullglob
+            return
+        fi
+    done
+    shopt -u nullglob
+    classify_run_log_when_no_output "$(primary_rosetta_log "$posdir")"
+}
+
 # Log-based hints when NO usable PDB output (or as secondary detail). Do NOT match PTMPredictionTensorflowProtocol
 # alone — it appears in every successful PTM metric run.
 classify_run_log_when_no_output() {
@@ -92,7 +140,7 @@ classify_run_log_when_no_output() {
 scorefile_summary() {
     local posdir="$1"
     local sc n
-    # Prefer merged per-position scorefile at directory root (exclude per-batch *.sc; those live under batch_scores/).
+    # Per-position scorefile at directory root (exclude legacy *_batch*.sc if present).
     sc="$(find "$posdir" -maxdepth 1 -type f -name '*.sc' ! -name '*_batch*.sc' 2>/dev/null | head -n 1)"
     if [[ -z "$sc" ]]; then
         echo "no_scorefile"
@@ -126,9 +174,9 @@ scorefile_summary() {
             echo -e "${pos_id}\tno\t0\t-\t-\t-\tmissing_out_by_position_dir\tno output directory — task may not have run"
             continue
         fi
-        logf="${pdir}/run.log"
+        logf="$(primary_rosetta_log "$pdir")"
         pdb_n="$(count_pdbs_in_posdir "$pdir")"
-        n_exp="$(expected_nstruct_from_log "$logf")"
+        n_exp="$(expected_nstruct_from_posdir "$pdir")"
         completeness="-"
         hint="-"
         note=""
@@ -141,17 +189,17 @@ scorefile_summary() {
                     note="PDB count matches -nstruct for this run."
                 elif [[ "$pdb_n" -lt "$n_exp" ]]; then
                     completeness="partial (${pdb_n}/${n_exp} pdb vs -nstruct)"
-                    note="Fewer PDB files than -nstruct; early stop or filters — check run.log if unexpected."
+                    note="Fewer PDB files than -nstruct; early stop or filters — check run.log / run_batch*.log if unexpected."
                 else
                     completeness="full+ (${pdb_n}/${n_exp} pdb, more than -nstruct)"
                     note="At least as many PDBs as -nstruct; extra models may be from retries or naming."
                 fi
             else
                 completeness="ok (${pdb_n} pdb file(s))"
-                note="PDB output present; could not parse -nstruct from run.log for full/partial count."
+                note="PDB output present; could not parse -nstruct from run.log / run_batch*.log for full/partial count."
             fi
         else
-            hint="$(classify_run_log_when_no_output "$logf")"
+            hint="$(classify_any_parallel_log "$pdir")"
             completeness="none"
             if [[ "$hint" == "failed_RMSD_filter" ]]; then
                 note="No PDB in out dir; Rosetta reported RMSD_filter failure."
@@ -164,7 +212,7 @@ scorefile_summary() {
             elif [[ "$hint" == "job_failed_see_log" ]]; then
                 note="No PDB in out dir; job distributor reported failures."
             else
-                note="No PDB in out dir; see run.log (hint: ${hint})."
+                note="No PDB in out dir; see run.log / run_batch*.log (hint: ${hint})."
             fi
         fi
 

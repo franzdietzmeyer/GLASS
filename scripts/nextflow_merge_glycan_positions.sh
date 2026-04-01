@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# For glycans mode: for each line in positions.txt, merge existing batch *.sc files for that
-# position into {pdb}_position{pos}.sc. Batch inputs live under out_by_position/<pos>/batch_scores/
-# (see run_one_position.sh); legacy layout (batch *.sc next to run.log) is still discovered.
-# Missing batches are skipped per position; merge failures for one position do not abort the loop.
+# Glycans mode: per-position scorefile is written in place by parallel Rosetta jobs (MPWOD, shared
+# {pdb}_position{pos}.sc). This script only merges *legacy* trees that still have batch_scores/*_batch*.sc
+# fragments; otherwise it no-ops when the final scorefile already exists.
 #
 # Usage:
 #   nextflow_merge_glycan_positions.sh <launch_dir> <pdb_name> <result_dir_rel> <positions_list_rel>
@@ -17,7 +16,7 @@ POSITIONS_LIST="${4:?positions list required}"
 
 cd "$LAUNCH_DIR"
 
-# Must match run_one_position.sh (default batch_scores).
+# Legacy batch layout (pre single-scorefile).
 GLASS_BATCH_SCORE_SUBDIR="${GLASS_BATCH_SCORE_SUBDIR:-batch_scores}"
 
 if [[ ! -f "$POSITIONS_LIST" ]]; then
@@ -30,31 +29,41 @@ while IFS= read -r pos || [[ -n "$pos" ]]; do
   [[ -z "$pos" ]] && continue
 
   dir="${RESULT_DIR}/out_by_position/${pos}"
+  out="${dir}/${PDB_NAME}_position${pos}.sc"
+
+  # Current layout: Rosetta already wrote the per-position scorefile; nothing to merge.
+  if [[ -f "$out" ]]; then
+    _nlines="$(wc -l < "$out" 2>/dev/null || echo 0)"
+    if [[ "${_nlines}" -gt 2 ]]; then
+      if [[ "${GLASS_NEXTFLOW_DEBUG:-0}" == "1" ]]; then
+        echo "[DEBUG] Per-position scorefile present (${_nlines} lines): $out" >&2
+      fi
+      continue
+    fi
+  fi
+
   batch_sub="${dir}/${GLASS_BATCH_SCORE_SUBDIR}"
   mapfile -t files < <(
     if [[ -d "$batch_sub" ]]; then
       find "$batch_sub" -maxdepth 1 -type f -name "${PDB_NAME}_position${pos}_batch*.sc" 2>/dev/null
     fi
   )
-  # Legacy: batch scorefiles directly under the position directory (pre- batch_scores/).
   if [[ ${#files[@]} -eq 0 ]]; then
     mapfile -t files < <(
       find "$dir" -maxdepth 1 -type f -name "${PDB_NAME}_position${pos}_batch*.sc" 2>/dev/null
     )
   fi
-  # Stable sort by batch index (batch1, batch2, …)
   if [[ ${#files[@]} -gt 0 ]]; then
     mapfile -t files < <(printf '%s\n' "${files[@]}" | sort -V)
   fi
 
   if [[ ${#files[@]} -eq 0 ]]; then
-    echo "[WARN] No batch score files for position ${pos}; skipping per-position merge." >&2
+    echo "[WARN] No per-position or legacy batch score files for position ${pos}; skipping." >&2
     continue
   fi
 
-  out="${dir}/${PDB_NAME}_position${pos}.sc"
   if [[ "${GLASS_NEXTFLOW_DEBUG:-0}" == "1" ]]; then
-    echo "[DEBUG] merging ${#files[@]} batch file(s) -> $out" >&2
+    echo "[DEBUG] Legacy merge: ${#files[@]} batch file(s) -> $out" >&2
   fi
   set +e
   PY="${GLASS_PYTHON:-python3}"

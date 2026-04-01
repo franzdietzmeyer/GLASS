@@ -2,11 +2,15 @@
 #
 # Run Rosetta glycan masking for a single position (one Snakemake job).
 # Usage: run_one_position.sh <pdb_path> <position_string> <enhanced> <glycan_model> <container> <job_output_dir> [batch_id] [batch_size] [total_nstruct]
-# Optional batch args (7,8,9): when provided, use {pdb_name}_batch{N}.sc and batch-specific nstruct.
-# Output: <job_output_dir>/{pdb_name}_position{position_id}.sc, or (glycans batch mode)
-#   <job_output_dir>/<GLASS_BATCH_SCORE_SUBDIR>/{pdb_name}_position{position_id}_batch{N}.sc
-#   (default GLASS_BATCH_SCORE_SUBDIR=batch_scores — merged file stays at job_output_dir root).
-# Reads nstruct and RMSD_filter from config.ini in the script directory (unless overridden by batch args).
+# Optional batch args (7,8,9): glycans parallel mode — multiple jobs per position share one output dir,
+#   one scorefile ({pdb}_position{id}.sc), -nstruct = chunk per job, MPWOD + stagger (see below).
+# Output: <job_output_dir>/{pdb_name}_position{position_id}.sc
+# Reads nstruct and RMSD_filter from config.ini (unless overridden by batch args for chunk size).
+#
+# DEBUG env:
+#   GLASS_MASKING_DEBUG=1           — verbose
+#   GLASS_MASKING_MPWOD=0           — omit -multiple_processes_writing_to_one_directory (testing only)
+#   GLASS_PARALLEL_STAGGER_SECONDS  — sleep (batch_id-1)*N before Rosetta in parallel mode (default 2)
 #
 set -euo pipefail
 
@@ -47,17 +51,26 @@ pdb_name=$(basename "$pdb_path" .pdb)
 pdb_name="${pdb_name%.PDB}"
 
 # Filesystem-safe position ID for scorefile naming (e.g. 123,124 -> 123_124)
-# Enables per-position scorefiles like Hk6a_position123.sc for easier identification in folders.
 position_id="${positions//,/_}"
 
 mkdir -p "$job_output_dir"
 
-# Subfolder for per-batch scorefiles only (glycans batching). Merged per-position .sc stays in job_output_dir.
-# DEBUG: override with GLASS_BATCH_SCORE_SUBDIR=mydir
-GLASS_BATCH_SCORE_SUBDIR="${GLASS_BATCH_SCORE_SUBDIR:-batch_scores}"
-
-# Batch mode: compute scorefile name and effective nstruct
+# Glycans parallel mode: Nextflow passes batch_id, batch_size, total_nstruct — workers share one scorefile + MPWOD.
+glycan_parallel=0
 if [[ -n "$batch_id" && -n "$batch_size" && "$batch_id" =~ ^[0-9]+$ && "$batch_size" =~ ^[0-9]+$ ]]; then
+    glycan_parallel=1
+fi
+
+GLASS_PARALLEL_STAGGER_SECONDS="${GLASS_PARALLEL_STAGGER_SECONDS:-2}"
+GLASS_MASKING_MPWOD="${GLASS_MASKING_MPWOD:-1}"
+
+# One scorefile per position for all parallel workers (Rosetta coordinates via MPWOD).
+scorefile_name="${pdb_name}_position${position_id}.sc"
+scorefile_for_rosetta="${scorefile_name}"
+scorefile_path="${job_output_dir}/${scorefile_name}"
+
+# Per-job chunk size when parallel; otherwise full nstruct.
+if [[ "$glycan_parallel" -eq 1 ]]; then
     start_index=$(( (batch_id - 1) * batch_size ))
     remaining=$(( total_nstruct - start_index ))
     if [[ "$remaining" -le 0 ]]; then
@@ -68,16 +81,8 @@ if [[ -n "$batch_id" && -n "$batch_size" && "$batch_id" =~ ^[0-9]+$ && "$batch_s
     if [[ "$remaining" -lt "$batch_size" ]]; then
         effective_nstruct="$remaining"
     fi
-    scorefile_name="${pdb_name}_position${position_id}_batch${batch_id}.sc"
-    mkdir -p "${job_output_dir}/${GLASS_BATCH_SCORE_SUBDIR}"
-    # Path relative to -out:path:all (Rosetta writes batch scorefile here; PDBs remain in job_output_dir).
-    scorefile_for_rosetta="${GLASS_BATCH_SCORE_SUBDIR}/${scorefile_name}"
-    scorefile_path="${job_output_dir}/${GLASS_BATCH_SCORE_SUBDIR}/${scorefile_name}"
 else
     effective_nstruct="$nstruct"
-    scorefile_name="${pdb_name}_position${position_id}.sc"
-    scorefile_for_rosetta="${scorefile_name}"
-    scorefile_path="${job_output_dir}/${scorefile_name}"
 fi
 
 if [[ "$positions" =~ , ]]; then
@@ -99,8 +104,14 @@ for _p in "${_pos_parts[@]}"; do
     start_qualified+="${_p}${chain_id}"
 done
 
-LOG_FILE="${job_output_dir}/run.log"
-echo "Starting single-position run: positions=${positions} chain=${chain_id} rosetta_start=${start_qualified} -> $job_output_dir (scorefile=${scorefile_for_rosetta}, nstruct=$effective_nstruct)"
+# Parallel workers append separate logs so output is readable (all share one scorefile).
+if [[ "$glycan_parallel" -eq 1 ]]; then
+    LOG_FILE="${job_output_dir}/run_batch${batch_id}.log"
+else
+    LOG_FILE="${job_output_dir}/run.log"
+fi
+
+echo "Starting single-position run: positions=${positions} chain=${chain_id} rosetta_start=${start_qualified} -> $job_output_dir (scorefile=${scorefile_for_rosetta}, nstruct=$effective_nstruct, parallel=${glycan_parallel})"
 
 # Debug toggle (easy to remove): set GLASS_MASKING_DEBUG=1 to print more info.
 GLASS_MASKING_DEBUG="${GLASS_MASKING_DEBUG:-0}"
@@ -119,23 +130,29 @@ is_placeholder_scorefile() {
     [[ "$l1" == "SEQUENCE" && "$l2" == "SCORE" ]]
 }
 
-# Legacy: batch scorefiles used to sit in job_output_dir root; move into batch_scores/ once so cache hits.
-if [[ -n "$batch_id" && -n "$batch_size" && "$batch_id" =~ ^[0-9]+$ && "$batch_size" =~ ^[0-9]+$ ]]; then
-    if [[ ! -f "${scorefile_path}" ]]; then
-        _legacy_batch_sc="${job_output_dir}/${scorefile_name}"
-        if [[ -f "${_legacy_batch_sc}" ]] && ! is_placeholder_scorefile "${_legacy_batch_sc}"; then
-            mkdir -p "$(dirname "${scorefile_path}")"
-            mv -f "${_legacy_batch_sc}" "${scorefile_path}"
-            [[ "${GLASS_MASKING_DEBUG}" == "1" ]] && echo "[DEBUG] Migrated legacy batch scorefile -> ${scorefile_path}" >&2
-        fi
+# Cache skip: only for non-parallel runs. Parallel workers share one scorefile — never skip or only
+# the first job would run Rosetta.
+if [[ "$glycan_parallel" -eq 0 ]]; then
+    if [[ -f "${scorefile_path}" ]] && ! is_placeholder_scorefile "${scorefile_path}"; then
+        [[ "${GLASS_MASKING_DEBUG}" == "1" ]] && echo "[DEBUG] Scorefile exists; skipping Rosetta: ${scorefile_path}" >&2
+        echo "Done (cached): ${scorefile_path}"
+        exit 0
     fi
 fi
 
-# If a non-placeholder scorefile already exists, do not rerun Rosetta.
-if [[ -f "${scorefile_path}" ]] && ! is_placeholder_scorefile "${scorefile_path}"; then
-    [[ "${GLASS_MASKING_DEBUG}" == "1" ]] && echo "[DEBUG] Scorefile exists; skipping Rosetta: ${scorefile_path}" >&2
-    echo "Done (cached): ${scorefile_path}"
-    exit 0
+# Stagger parallel container starts so processes do not launch at identical wall times.
+if [[ "$glycan_parallel" -eq 1 ]] && [[ "${GLASS_PARALLEL_STAGGER_SECONDS}" =~ ^[0-9]+$ ]] && [[ "${GLASS_PARALLEL_STAGGER_SECONDS}" -gt 0 ]]; then
+    _sleep_sec=$(( (batch_id - 1) * GLASS_PARALLEL_STAGGER_SECONDS ))
+    if [[ "${_sleep_sec}" -gt 0 ]]; then
+        [[ "${GLASS_MASKING_DEBUG}" == "1" ]] && echo "[DEBUG] Stagger sleep ${_sleep_sec}s (batch_id=${batch_id})" >&2
+        sleep "${_sleep_sec}"
+    fi
+fi
+
+# Extra Rosetta flags for parallel glycans (MPWOD coordinates PDB + scorefile in one directory).
+_EXTRA_MPWOD=()
+if [[ "$glycan_parallel" -eq 1 ]] && [[ "${GLASS_MASKING_MPWOD}" != "0" ]]; then
+    _EXTRA_MPWOD=(-multiple_processes_writing_to_one_directory)
 fi
 
 # Determine container backend from config (docker or apptainer); default to docker.
@@ -170,6 +187,7 @@ case "$container_backend" in
         -ignore_zero_occupancy false \
         -include_sugars \
         -beta -ex1 -ex2 -use_input_sc \
+        "${_EXTRA_MPWOD[@]}" \
         >> "$LOG_FILE" 2>&1
     rosetta_exit_code=$?
     set -e
@@ -193,6 +211,7 @@ case "$container_backend" in
         -ignore_zero_occupancy false \
         -include_sugars \
         -beta -ex1 -ex2 -use_input_sc \
+        "${_EXTRA_MPWOD[@]}" \
         >> "$LOG_FILE" 2>&1
     rosetta_exit_code=$?
     set -e
@@ -207,11 +226,15 @@ if [[ "${GLASS_MASKING_DEBUG}" == "1" ]]; then
 fi
 
 # If Rosetta exited non-zero OR the expected scorefile is missing, write a placeholder.
-# We do not create FAILED markers anymore.
+# Parallel workers share one scorefile: do not overwrite real data written by a sibling process.
 if [[ "${rosetta_exit_code}" -ne 0 || ! -f "${scorefile_path}" ]]; then
-    echo "[WARN] Glycan masking did not produce a valid scorefile for positions='${positions}' (batch_id='${batch_id:-}'). Writing placeholder. Check ${LOG_FILE}" >&2
-    if [[ ! -f "${scorefile_path}" ]]; then
-        printf "SEQUENCE\nSCORE\n" > "${scorefile_path}"
+    if [[ "${glycan_parallel}" -eq 1 ]] && [[ -f "${scorefile_path}" ]] && ! is_placeholder_scorefile "${scorefile_path}"; then
+        [[ "${GLASS_MASKING_DEBUG}" == "1" ]] && echo "[DEBUG] Parallel job exit ${rosetta_exit_code}; shared scorefile already has rows — not touching." >&2
+    else
+        echo "[WARN] Glycan masking did not produce a valid scorefile for positions='${positions}' (batch_id='${batch_id:-}'). Writing placeholder. Check ${LOG_FILE}" >&2
+        if [[ ! -f "${scorefile_path}" ]]; then
+            printf "SEQUENCE\nSCORE\n" > "${scorefile_path}"
+        fi
     fi
 fi
 

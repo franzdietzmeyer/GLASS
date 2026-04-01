@@ -14,7 +14,7 @@ nextflow.enable.dsl = 2
  * Resource labels (see workflows/nextflow/nextflow.config and conf/slurm.config):
  *   rosetta_initial_relax — FastRelax replicate (container).
  *   rosetta_nogly         — glycan masking, no_glycans mode.
- *   rosetta_glycans       — glycan masking, glycans batch mode.
+ *   rosetta_glycans       — glycan masking, glycans mode: parallel workers per position (shared scorefile, MPWOD).
  *   nf_light              — prepare_positions, finalize, merges, analysis.
  */
 
@@ -143,6 +143,8 @@ process GLYCAN_MASKING_NOGLY {
     val(position_id), emit: done
 }
 
+// Parallel chunk workers: same position may run multiple tasks (batch_id). Each uses chunk nstruct,
+// shared per-position scorefile + MPWOD + stagger (run_one_position.sh).
 process GLYCAN_MASKING_BATCH {
     label 'rosetta_glycans'
     cpus 1

@@ -220,7 +220,7 @@ After successful completion, you'll find analysis results in:
 - `results/{pdb_name}_{glycan_model}/GLASS_position_audit.txt`: Combined report — **(1)** why positions were included or excluded from `positions.txt` (terminal/Cys/exclude/grouped) and **(2)** per-position Rosetta outcomes. Success is judged by **PDB files** in `out_by_position/<id>/` (vs `-nstruct` in `run.log` for full/partial); log hints are used when no PDBs are produced (e.g. RMSD filter). See also `positions/positions_preparation_report.txt` and `position_rosetta_run_audit.txt`.
 - `results/{pdb_name}_{glycan_model}/analysis_results/`: Contains all analysis outputs
 - `results/{pdb_name}_{glycan_model}/{pdb_name}.sc`: Merged Rosetta score file (all positions, no position in filename)
-- `results/{pdb_name}_{glycan_model}/out_by_position/{position_id}/{pdb_name}_position{position_id}.sc`: Per-position **merged** scorefile (glycans batch mode merges per-batch files from `out_by_position/{position_id}/batch_scores/` into this file at the position directory root)
+- `results/{pdb_name}_{glycan_model}/out_by_position/{position_id}/{pdb_name}_position{position_id}.sc`: Per-position scorefile (glycans mode: parallel Rosetta jobs append to this file with `-multiple_processes_writing_to_one_directory`; logs per chunk in `run_batch*.log`)
 - `results/{pdb_name}_{glycan_model}/position_run_summary.txt`: Summary of which positions ran successfully vs failed/incomplete (printed to stdout as well)
 
 **For glycan mode (`glycan_model = glycans`):**
