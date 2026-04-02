@@ -140,7 +140,11 @@ def main() -> None:
     analysis_marker_abs = os.path.join(launch_dir, analysis_marker)
     merged_score_path_abs = os.path.join(launch_dir, merged_score_path)
 
-    n_batches = max(1, ceil(nstruct / glycan_batch_size)) if glycan_model == "glycans" else 1
+    n_batches = (
+        max(1, ceil(nstruct / glycan_batch_size))
+        if glycan_model in ("glycans", "glycans_forced")
+        else 1
+    )
 
     _raw_lqs = sec.get("nextflow_local_queue_size", "5").strip()
     try:

@@ -38,7 +38,7 @@ if [[ "${GLASS_ANALYSIS_DEBUG:-0}" == "1" ]]; then
     echo "[DEBUG] run_analysis: raw glycan_model line value='${_raw_gm}' normalized='${glycan_model}'" >&2
 fi
 
-if [[ "$glycan_model" == "glycans" ]]; then
+if [[ "$glycan_model" == "glycans" || "$glycan_model" == "glycans_forced" ]]; then
     echo "GLASS analysis: glycan_model='${glycan_model}' -> main_analysis.py --mode glycan (scatter: d_total_score vs PTMPredictionMetric)" >&2
     python main_analysis.py --mode glycan \
         --scorefile "../$scorefile" \
@@ -49,13 +49,13 @@ if [[ "$glycan_model" == "glycans" ]]; then
         --ptm-cutoff 0.5 \
         --distance-cutoff 5.0 \
         --chain-id "$chain_id" \
-        --glycan-model glycans \
+        --glycan-model "$glycan_model" \
         --output-dir "../$out_dir/analysis_results"
 else
     # PTM analysis: same --mode for no_glycans and no_glycans_forced; output filenames use glycan_model tag.
     glycan_model_tag="$glycan_model"
     if [[ "$glycan_model" != "no_glycans" && "$glycan_model" != "no_glycans_forced" ]]; then
-        echo "GLASS analysis: warning: glycan_model='${glycan_model}' (expected 'glycans', 'no_glycans', or 'no_glycans_forced'); using --mode no_glycans with tag no_glycans." >&2
+        echo "GLASS analysis: warning: glycan_model='${glycan_model}' (expected 'glycans', 'glycans_forced', 'no_glycans', or 'no_glycans_forced'); using --mode no_glycans with tag no_glycans." >&2
         glycan_model_tag="no_glycans"
     fi
     echo "GLASS analysis: glycan_model='${glycan_model}' -> main_analysis.py --mode no_glycans (PTM by position), tag=${glycan_model_tag}" >&2

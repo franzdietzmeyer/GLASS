@@ -17,7 +17,7 @@ Defaults (also shipped in `config/nextflow_slurm.ini`):
 |------------------|----------------|-----------------|
 | `nextflow_slurm_time_initial_relax`, `nextflow_slurm_memory_initial_relax` | `initial_relax_process_*` | **`rosetta_initial_relax`**: FastRelax replicate |
 | `nextflow_slurm_time_nogly`, `nextflow_slurm_memory_nogly` | `nogly_process_*` | **`rosetta_nogly`**: masking, `glycan_model = no_glycans` |
-| `nextflow_slurm_time_glycans`, `nextflow_slurm_memory_glycans` | `glycans_process_*` | **`rosetta_glycans`**: masking batches, `glycan_model = glycans` |
+| `nextflow_slurm_time_glycans`, `nextflow_slurm_memory_glycans` | `glycans_process_*` | **`rosetta_glycans`**: masking batches, `glycan_model = glycans` or `glycans_forced` |
 | `nextflow_slurm_time_light`, `nextflow_slurm_memory_light` | `light_process_*` | **`nf_light`**: prepare_positions, finalize, merges, analysis |
 
 **Fine-grained overrides** (one process type, or one site):

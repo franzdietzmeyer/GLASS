@@ -14,7 +14,7 @@ nextflow.enable.dsl = 2
  * Resource labels (see workflows/nextflow/nextflow.config and conf/slurm.config):
  *   rosetta_initial_relax — FastRelax replicate (container).
  *   rosetta_nogly         — glycan masking, no_glycans or no_glycans_forced (run_one_position.sh).
- *   rosetta_glycans       — glycan masking, glycans mode: parallel workers per position (shared scorefile, MPWOD).
+ *   rosetta_glycans       — glycan masking, glycans or glycans_forced: parallel workers per position (shared scorefile, MPWOD).
  *   nf_light              — prepare_positions, finalize, merges, analysis.
  */
 
@@ -311,7 +311,7 @@ workflow {
         .map { it.trim() }
         .filter { it }
 
-    if (params.glycan_model == 'glycans') {
+    if (params.glycan_model == 'glycans' || params.glycan_model == 'glycans_forced') {
         ch_batches = Channel.from(1..params.n_batches)
         ch_jobs = ch_pos.combine(ch_batches)
         GLYCAN_MASKING_BATCH(ch_jobs)

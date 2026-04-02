@@ -15,7 +15,7 @@
 #   ./run_glass_nextflow.sh local --config /abs/path/to/config.ini
 #   ./run_glass_nextflow.sh local -resume
 #
-# Nextflow reads glycan_model from config.ini and runs batching when glycan_model = glycans.
+# Nextflow reads glycan_model from config.ini and runs batching when glycan_model is glycans or glycans_forced.
 # Failed Rosetta jobs do not block merge/analyze when at least one score file exists (see workflows/nextflow/main.nf).
 #
 # DEBUG:

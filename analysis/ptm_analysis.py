@@ -342,7 +342,35 @@ class PTMAnalyzer:
             )
 
         return out
-    
+
+    def _resolve_ptm_pre_post_energy_columns(
+        self, df: pd.DataFrame
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Pre = native (input) total score; post = design output total score.
+        Matches _filter_ptm_rows_worse_post_energy: prefer final_total_energy, else r_total_energy.
+        """
+        pre_col = "native_total_energy"
+        if pre_col not in df.columns:
+            return None, None
+        if "final_total_energy" in df.columns:
+            return pre_col, "final_total_energy"
+        if "r_total_energy" in df.columns:
+            return pre_col, "r_total_energy"
+        return pre_col, None
+
+    def _add_dtotal_score_column(self, df: pd.DataFrame) -> pd.DataFrame:
+        """dtotal_score = post_total_score - pre_total_score (per decoy row)."""
+        out = df.copy()
+        pre_c, post_c = self._resolve_ptm_pre_post_energy_columns(out)
+        if pre_c and post_c:
+            pre = pd.to_numeric(out[pre_c], errors="coerce")
+            post = pd.to_numeric(out[post_c], errors="coerce")
+            out["dtotal_score"] = post - pre
+        else:
+            out["dtotal_score"] = np.nan
+        return out
+
     def plot_ptm_by_position(self, df: pd.DataFrame, wild_type_positions: List[int], 
                             name_label: str, output_file: str) -> None:
         """
@@ -368,12 +396,19 @@ class PTMAnalyzer:
         # Detect the PTMPredictionMetric column
         ptm_column = self.detect_ptm_prediction_column(df)
 
+        # d_total_score = post_total_score - pre_total_score (same pre/post columns as energy filter)
+        df = self._add_dtotal_score_column(df)
+
         # Coerce to numeric (merged score files may contain header lines read as data → object dtype)
         ptm_numeric = pd.to_numeric(df[ptm_column], errors='coerce')
 
         # Group by 'position' and get mean and standard deviation
         ptm_mean = df.assign(_ptm=ptm_numeric).groupby('position')['_ptm'].mean().sort_index()
         ptm_std  = df.assign(_ptm=ptm_numeric).groupby('position')['_ptm'].std().sort_index()
+
+        dtot_numeric = pd.to_numeric(df["dtotal_score"], errors="coerce")
+        dtot_mean = df.assign(_dts=dtot_numeric).groupby("position")["_dts"].mean().sort_index()
+        dtot_std = df.assign(_dts=dtot_numeric).groupby("position")["_dts"].std().sort_index()
 
         n_positions = len(ptm_mean)
 
@@ -564,14 +599,18 @@ class PTMAnalyzer:
         # Save plotted data as CSV for easy recreation (e.g. in Prism)
         csv_file = output_file.rsplit('.', 1)[0] + '.csv'
         position_labels_display = [pos_to_label.get(p, str(p)) for p in ptm_mean.index]
+        # dtotal_score: mean/std of (post_total_score - pre_total_score) per position
+        _idx = ptm_mean.index
         plot_data = pd.DataFrame({
-            'position': ptm_mean.index,
+            'position': _idx,
             #'position_label': position_labels_display,
             'sequon': sequon_strings,
             f'{ptm_column}_mean': ptm_mean.values,
             f'{ptm_column}_std': ptm_std.fillna(0).values,
-            'is_wildtype': [_is_wildtype(p) for p in ptm_mean.index],
-            'category': ['Wild-type' if _is_wildtype(p) else 'New' for p in ptm_mean.index],
+            'dtotal_score_mean': dtot_mean.reindex(_idx).values,
+            'dtotal_score_std': dtot_std.reindex(_idx).fillna(0).values,
+            'is_wildtype': [_is_wildtype(p) for p in _idx],
+            'category': ['Wild-type' if _is_wildtype(p) else 'New' for p in _idx],
         })
         plot_data.to_csv(csv_file, index=False, na_rep='')
         if self.debug:

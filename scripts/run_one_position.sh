@@ -2,7 +2,7 @@
 #
 # Run Rosetta glycan masking for a single position (one Snakemake job).
 # Usage: run_one_position.sh <pdb_path> <position_string> <enhanced> <glycan_model> <container> <job_output_dir> [batch_id] [batch_size] [total_nstruct]
-# Optional batch args (7,8,9): glycans parallel mode — multiple jobs per position share one output dir,
+# Optional batch args (7,8,9): glycans / glycans_forced parallel mode — multiple jobs per position share one output dir,
 #   one scorefile ({pdb}_position{id}.sc), -nstruct = chunk per job, MPWOD + stagger (see below).
 # no_glycans / no_glycans_forced: Rosetta always includes -multiple_processes_writing_to_one_directory (non-glycans protocol).
 # Output: <job_output_dir>/{pdb_name}_position{position_id}.sc
@@ -153,11 +153,11 @@ fi
 # MPWOD: no_glycans — always pass the flag (simple, single job per position). Glycans parallel batches —
 # only when GLASS_MASKING_MPWOD != 0 (multiple processes sharing one scorefile/dir).
 _EXTRA_MPWOD=()
-if [[ "$glycan_model" == "glycans" ]] && [[ "$glycan_parallel" -eq 1 ]]; then
+if [[ "$glycan_model" == "glycans" || "$glycan_model" == "glycans_forced" ]] && [[ "$glycan_parallel" -eq 1 ]]; then
     if [[ "${GLASS_MASKING_MPWOD}" != "0" ]]; then
         _EXTRA_MPWOD=(-multiple_processes_writing_to_one_directory)
     fi
-elif [[ "$glycan_model" != "glycans" ]]; then
+elif [[ "$glycan_model" != "glycans" && "$glycan_model" != "glycans_forced" ]]; then
     _EXTRA_MPWOD=(-multiple_processes_writing_to_one_directory)
 fi
 

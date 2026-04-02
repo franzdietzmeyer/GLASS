@@ -99,6 +99,25 @@
 				<Add mover="motif_RMSD2"/>
         	</ParsedProtocol>
 
+			<!-- Same steps as glycans; distinct protocol name for results/..._glycans_forced/ only. -->
+			<ParsedProtocol name="glycans_forced" >
+           		<Add mover="pre_metrics"/>
+        		<Add mover="store_if"/>
+       			<Add mover="motif_creator"/>
+        		<Add mover ="neighborhood_relax"/>
+        		<Add mover="post_metrics"/> 
+				<Add mover="motif_RMSD"/>
+				<Add filter="total_score_filter"/>
+				<Add filter="RMSD_filter"/>
+				<Add mover="PTM_prediction"/>
+        		<Add mover="glycosylate"/>
+        		<Add mover="tree_modeler"/>
+				<Add mover="full_relax"/>
+				<Add filter="RMSD_filter"/>
+				<Add mover="post_metrics2"/>
+				<Add mover="motif_RMSD2"/>
+        	</ParsedProtocol>
+
 			<ParsedProtocol name="no_glycans" >
            		<Add mover="pre_metrics"/>
         		<Add mover="store_if"/>
