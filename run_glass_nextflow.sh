@@ -147,13 +147,13 @@ export GLASS_CONFIG_INI_SOURCE="$GLASS_USER_CONFIG_ABS"
 # Activate the uv venv (contains Python deps, PyRosetta, and Nextflow).
 # Skip with GLASS_NEXTFLOW_SKIP_ENV_SETUP=1 if you pre-activated manually.
 # -----------------------------------------------------------------------------
-VENV_DIR="$REPO_ROOT/venv"
+VENV_DIR="$REPO_ROOT/.venv"
 VENV_ACTIVATE="$VENV_DIR/bin/activate"
 
 if [[ "${GLASS_NEXTFLOW_SKIP_ENV_SETUP:-0}" != "1" ]]; then
     if [[ ! -f "$VENV_ACTIVATE" ]]; then
         echo "Error: venv not found at $VENV_DIR" >&2
-        echo "  Create it with: uv venv venv && source venv/bin/activate && uv pip install -r requirements/requirements.txt" >&2
+        echo "  Create it with: ./setup.sh" >&2
         exit 1
     fi
     # shellcheck source=/dev/null
