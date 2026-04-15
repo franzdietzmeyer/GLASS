@@ -24,6 +24,8 @@ d = sorted(glob.glob(os.path.join('$JDK_BASE', 'jdk-*')))[0]
 print(os.path.join(d, 'Contents', 'Home') if jdk.OS == 'mac' else d)
 ")"
 
+export JAVE_HOME=$JAVA_HOME
+echo $JAVA_HOME
 echo "[GLASS] Step 3/3: Installing Nextflow..."
 if [ -x "$NF_BIN" ]; then
     echo "[GLASS] Nextflow already present at $NF_BIN, skipping."
