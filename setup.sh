@@ -18,11 +18,17 @@ else
     "$VENV_DIR/bin/python" -c "import jdk; jdk.install('25', path='$JDK_BASE')"
 fi
 
+JAVA_HOME="$("$VENV_DIR/bin/python" -c "
+import jdk, os, glob
+d = sorted(glob.glob(os.path.join('$JDK_BASE', 'jdk-*')))[0]
+print(os.path.join(d, 'Contents', 'Home') if jdk.OS == 'mac' else d)
+")"
+
 echo "[GLASS] Step 3/3: Installing Nextflow..."
 if [ -x "$NF_BIN" ]; then
     echo "[GLASS] Nextflow already present at $NF_BIN, skipping."
 else
-    JAVA_HOME="$(ls -d "$JDK_BASE"/jdk-* | head -1)" \
+    JAVA_HOME="$JAVA_HOME" \
         bash -c "cd \"$VENV_DIR/bin\" && curl -fsSL https://get.nextflow.io | bash"
 fi
 

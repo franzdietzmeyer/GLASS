@@ -167,6 +167,17 @@ export GLASS_PYTHON="$VENV_DIR/bin/python"
 export NEXTFLOW_BIN="$VENV_DIR/bin/nextflow"
 export PATH="$VENV_DIR/bin:${PATH}"
 
+# Set JAVA_HOME from the bundled JDK; on macOS the layout includes Contents/Home.
+JDK_BASE="$REPO_ROOT/jdk"
+if ls "$JDK_BASE"/jdk-* > /dev/null 2>&1; then
+    export JAVA_HOME="$("$GLASS_PYTHON" -c "
+import jdk, os, glob
+d = sorted(glob.glob(os.path.join('$JDK_BASE', 'jdk-*')))[0]
+print(os.path.join(d, 'Contents', 'Home') if jdk.OS == 'mac' else d)
+")"
+    [[ "${GLASS_NEXTFLOW_DEBUG:-0}" == "1" ]] && echo "[DEBUG] JAVA_HOME=$JAVA_HOME" >&2
+fi
+
 if [[ ! -x "$GLASS_PYTHON" ]]; then
     echo "Error: Python not found at $GLASS_PYTHON" >&2
     exit 1
