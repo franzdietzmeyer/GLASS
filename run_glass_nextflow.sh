@@ -55,6 +55,12 @@ set -euo pipefail
 MODE="${1:-local}"
 shift || true
 
+case "$MODE" in
+    -h|--help) sed -n 's/^# \{0,1\}//p' "$0" | sed '/^!/q'; exit 0 ;;
+    local|slurm) ;;
+    *) echo "Error: Unknown mode '$MODE'. Expected 'local' or 'slurm'." >&2; exit 1 ;;
+esac
+
 CUSTOM_CONFIG_INI=""
 PASSTHRU_ARGS=()
 while [[ $# -gt 0 ]]; do
@@ -120,7 +126,7 @@ if [[ "${GLASS_NEXTFLOW_SKIP_CONFIG_SNAPSHOT:-0}" != "1" ]]; then
         CONFIG_SNAPSHOT="${_snap_dir}/run_config.ini"
         mkdir -p "$_snap_dir"
         _want_resume=0
-        for _a in "${PASSTHRU_ARGS[@]:-}"; do
+        for _a in "${PASSTHRU_ARGS[@]+"${PASSTHRU_ARGS[@]}"}"; do
             if [[ "$_a" == "-resume" ]]; then
                 _want_resume=1
                 break
@@ -176,6 +182,8 @@ d = sorted(glob.glob(os.path.join('$JDK_BASE', 'jdk-*')))[0]
 print(os.path.join(d, 'Contents', 'Home') if jdk.OS == 'mac' else d)
 ")"
     [[ "${GLASS_NEXTFLOW_DEBUG:-0}" == "1" ]] && echo "[DEBUG] JAVA_HOME=$JAVA_HOME" >&2
+else
+    echo "Error: JDK not found at $JDK_BASE. Run ./setup.sh first." >&2; exit 1
 fi
 
 if [[ ! -x "$GLASS_PYTHON" ]]; then
@@ -204,26 +212,20 @@ if [[ "${GLASS_NEXTFLOW_LOG_STDOUT:-0}" != "1" ]]; then
     exec > >(tee -a "$OUT_FILE") 2> >(tee -a "$ERR_FILE" >&2)
 fi
 
+trap '[[ -f "${PARAMS_JSON:-}" ]] && rm -f "$PARAMS_JSON"' EXIT
+
 # -----------------------------------------------------------------------------
 # Generate Nextflow params JSON from config.ini
 # -----------------------------------------------------------------------------
 PARAMS_JSON="${GLASS_NEXTFLOW_PARAMS_JSON:-}"
 if [[ -z "$PARAMS_JSON" ]]; then
-    PARAMS_JSON="$(mktemp "${TMPDIR:-/tmp}/glass_nextflow_params.XXXXXX.json")"
+    PARAMS_JSON="${TMPDIR:-/tmp}/glass_nextflow_params_${timestamp}.json"
     GLASS_LAUNCH_DIR="$REPO_ROOT" GLASS_CONFIG_INI="$CONFIG_PIPELINE_ABS" \
         "$GLASS_PYTHON" "$REPO_ROOT/workflows/nextflow/glass_config_json.py" "$CONFIG_PIPELINE_ABS" >"$PARAMS_JSON"
 fi
 
 WORK_DIR="${GLASS_NEXTFLOW_WORKDIR:-$REPO_ROOT/.nextflow_work}"
 mkdir -p "$WORK_DIR"
-
-case "$MODE" in
-    local|slurm) ;;
-    *)
-        echo "Error: Unknown mode '$MODE'. Expected 'local' or 'slurm'." >&2
-        exit 1
-        ;;
-esac
 
 NF_CONFIG="$REPO_ROOT/workflows/nextflow/nextflow.config"
 NF_MAIN="$REPO_ROOT/workflows/nextflow/main.nf"
@@ -248,4 +250,4 @@ if [[ "${GLASS_NEXTFLOW_DEBUG:-0}" == "1" ]]; then
 fi
 
 cd "$REPO_ROOT"
-exec "${CMD[@]}" "${PASSTHRU_ARGS[@]}"
+exec "${CMD[@]}" "${PASSTHRU_ARGS[@]+"${PASSTHRU_ARGS[@]}"}"
