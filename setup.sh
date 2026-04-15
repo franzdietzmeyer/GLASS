@@ -21,7 +21,7 @@ fi
 JAVA_HOME="$("$VENV_DIR/bin/python" -c "
 import jdk, os, glob
 d = sorted(glob.glob(os.path.join('$JDK_BASE', 'jdk-*')))[0]
-system=jdk.OS
+system=str(jdk.OS)
 print(os.path.join(d, 'Contents', 'Home') if 'mac' in system else d)
 ")"
 
