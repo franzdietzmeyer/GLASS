@@ -37,9 +37,9 @@ class TestReadOneScoreFile:
         path = tmp_path / "test.sc"
         path.write_text(
             "SEQUENCE: ACDEF\n"
-            "description score\n"
-            "run_1 0.5\n"
-            "run_2 0.6\n"
+            "SCORE: description score\n"
+            "SCORE: run_1 0.5\n"
+            "SCORE: run_2 0.6\n"
         )
         seq, df = merge_score_files.read_one_score_file(str(path))
         assert seq == "SEQUENCE: ACDEF"
@@ -53,3 +53,22 @@ class TestReadOneScoreFile:
         seq, df = merge_score_files.read_one_score_file(str(path))
         assert seq == ""
         assert df.empty
+
+    def test_filters_garbage_preamble_and_keeps_valid_score_rows(self, tmp_path, monkeypatch):
+        # Simulate a Rosetta run that emitted placeholder/garbage lines before the real score header.
+        path = tmp_path / "bad_preamble.sc"
+        path.write_text(
+            "\n"
+            "no output was generated\n"
+            "no output was generated\n"
+            "SEQUENCE: ACDEF\n"
+            "SCORE: total_score description\n"
+            "SCORE: -1.0 model_1\n"
+            "SCORE: -2.0 model_2\n"
+        )
+        monkeypatch.setenv("GLASS_DEBUG_MERGE_SCORES", "1")
+        seq, df = merge_score_files.read_one_score_file(str(path))
+        assert seq.startswith("SEQUENCE")
+        assert len(df) == 2
+        assert "total_score" in df.columns
+        assert "description" in df.columns
