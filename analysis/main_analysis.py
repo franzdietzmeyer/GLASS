@@ -113,6 +113,17 @@ Examples:
         default=None,
         help='Pipeline glycan_model label for output filenames (default: infer from --mode)',
     )
+    ptm_group.add_argument(
+        '--allow-worse-scores',
+        dest='allow_worse_scores_pct',
+        type=float,
+        default=0.0,
+        help=(
+            "Allow post total energy to be worse than native by up to this percentage (no_glycans). "
+            "Value is in percent (e.g. 5 means allow up to +5%). "
+            "Default 0.0 keeps only rows with post <= native."
+        ),
+    )
 
     return parser
 
@@ -303,6 +314,7 @@ def run_ptm_analysis(args):
         pdb_file=args.pdb_file,
         output_dir=args.output_dir,
         glycan_model_tag=args.glycan_model,
+        allow_worse_scores_pct=args.allow_worse_scores_pct,
     )
 
 

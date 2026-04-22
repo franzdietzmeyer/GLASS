@@ -181,7 +181,7 @@ class PTMAnalyzer:
 
         return n_positions, sequence
     
-    def load_ptm_data(self, input_file: str) -> pd.DataFrame:
+    def load_ptm_data(self, input_file: str, allow_worse_scores_pct: float = 0.0) -> pd.DataFrame:
         """
         Load PTM data from Rosetta score file.
 
@@ -238,10 +238,14 @@ class PTMAnalyzer:
                 print(f"[DEBUG] Dropped {n_invalid} row(s) with missing or non-numeric position from description")
         PTM_data['position'] = position_numeric.astype(int)
 
-        # Optional: drop structures where post-state total energy is worse than pre (native).
-        # Rosetta: lower energy is better, so exclude rows with post > pre (strictly worse).
+        # Optional: drop structures where post-state total energy is worse than pre (native),
+        # optionally allowing a bounded worsening tolerance.
+        # Rosetta: lower energy is better, so (by default) exclude rows with post > pre.
         # Columns come from Glycan_Masking.xml RunSimpleMetrics (native_ / final_ / r_ prefixes).
-        PTM_data = self._filter_ptm_rows_worse_post_energy(PTM_data)
+        PTM_data = self._filter_ptm_rows_worse_post_energy(
+            PTM_data,
+            allow_worse_scores_pct=allow_worse_scores_pct,
+        )
 
         if self.debug:
             print(f"[DEBUG] Loaded PTM data: {len(PTM_data)} entries")
@@ -250,7 +254,11 @@ class PTMAnalyzer:
 
         return PTM_data
 
-    def _filter_ptm_rows_worse_post_energy(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _filter_ptm_rows_worse_post_energy(
+        self,
+        df: pd.DataFrame,
+        allow_worse_scores_pct: float = 0.0,
+    ) -> pd.DataFrame:
         """
         Remove scorefile rows where post total energy is strictly higher (worse) than pre.
 
@@ -259,6 +267,16 @@ class PTMAnalyzer:
         is absent (older or partial scorefiles).
 
         Set env ``GLASS_PTM_SKIP_ENERGY_FILTER=1`` to disable this filter (DEBUG).
+
+        Tolerance:
+            When ``allow_worse_scores_pct`` > 0, allow post to be worse than pre by up to
+            that percentage, using:
+
+              post <= pre + abs(pre) * (pct / 100)
+
+            This behaves sensibly for both negative and positive energies. If pre is 0,
+            the tolerance is treated as 0 (strict), because a percent-of-zero threshold
+            is undefined.
         """
         skip = os.environ.get("GLASS_PTM_SKIP_ENERGY_FILTER", "").strip().lower() in (
             "1",
@@ -297,12 +315,23 @@ class PTMAnalyzer:
         post = pd.to_numeric(df[post_col], errors="coerce")
         n_before = len(df)
 
-        # Only exclude when both energies are present and post is strictly worse (higher) than pre.
+        # Only exclude when both energies are present.
         valid = pre.notna() & post.notna()
         n_missing = int((~valid).sum())
-        worse = valid & (post > pre)
-        n_worse = int(worse.sum())
-        keep = ~worse
+
+        # Determine allowed post threshold per row (vectorized).
+        pct = float(allow_worse_scores_pct) if allow_worse_scores_pct is not None else 0.0
+        if pct < 0:
+            pct = 0.0
+        pre_abs = pre.abs()
+        tol = pre_abs * (pct / 100.0)
+        # Percent-of-zero is undefined; use strict for pre == 0.
+        tol = tol.where(pre_abs != 0, 0.0)
+        allowed_post = pre + tol
+
+        worse_than_allowed = valid & (post > allowed_post)
+        n_worse = int(worse_than_allowed.sum())
+        keep = ~worse_than_allowed
 
         out = df.loc[keep].copy()
         n_after = len(out)
@@ -315,18 +344,24 @@ class PTMAnalyzer:
                 f"rows_in={n_before}, excluded_worse={n_worse}, "
                 f"rows_with_missing_pre_or_post_kept={n_missing}"
             )
+            if pct > 0:
+                print(f"[DEBUG]   tolerance: allow_worse_scores_pct={pct:.3f}% (threshold post <= pre + abs(pre)*pct/100)")
             if n_worse > 0:
-                bad_idx = worse[worse].index[:5]
+                bad_idx = worse_than_allowed[worse_than_allowed].index[:5]
                 for i in bad_idx:
                     print(
                         f"[DEBUG]   excluded row {df.loc[i, 'description']!r}: "
-                        f"pre={pre.loc[i]:.3f} post={post.loc[i]:.3f} delta={dbg_delta.loc[i]:.3f}"
+                        f"pre={pre.loc[i]:.3f} post={post.loc[i]:.3f} delta={dbg_delta.loc[i]:.3f} "
+                        f"allowed_post={allowed_post.loc[i]:.3f}"
                     )
 
         if n_worse > 0 or n_missing > 0:
             msg = (
-                f"PTM pre/post energy filter: excluded {n_worse} structure(s) with post > pre "
-                f"({post_col} vs {pre_col}); {n_after} row(s) remain."
+                "PTM pre/post energy filter: excluded "
+                f"{n_worse} structure(s) with post > allowed "
+                f"({post_col} vs {pre_col}"
+                + (f", allow_worse_scores_pct={pct:g}%" if pct > 0 else "")
+                + f"); {n_after} row(s) remain."
             )
             if n_missing > 0:
                 msg += (
@@ -371,8 +406,14 @@ class PTMAnalyzer:
             out["dtotal_score"] = np.nan
         return out
 
-    def plot_ptm_by_position(self, df: pd.DataFrame, wild_type_positions: List[int], 
-                            name_label: str, output_file: str) -> None:
+    def plot_ptm_by_position(
+        self,
+        df: pd.DataFrame,
+        wild_type_positions: List[int],
+        name_label: str,
+        output_file: str,
+        allow_worse_scores_pct: float = 0.0,
+    ) -> None:
         """
         Plot the mean PTMPredictionMetric by position for the given dataframe,
         and annotate each xtick with the sequon(s) and their frequencies for both new
@@ -398,6 +439,35 @@ class PTMAnalyzer:
 
         # d_total_score = post_total_score - pre_total_score (same pre/post columns as energy filter)
         df = self._add_dtotal_score_column(df)
+
+        # --- Mark positions that include tolerated-worse rows (post > pre but within tolerance) ---
+        # This only affects x-tick label color; bars remain the standard color scheme.
+        pre_c, post_c = self._resolve_ptm_pre_post_energy_columns(df)
+        tolerated_worse_positions = set()
+        pct = float(allow_worse_scores_pct) if allow_worse_scores_pct is not None else 0.0
+        if pct < 0:
+            pct = 0.0
+        if pct > 0 and pre_c and post_c and "position" in df.columns:
+            pre = pd.to_numeric(df[pre_c], errors="coerce")
+            post = pd.to_numeric(df[post_c], errors="coerce")
+            valid = pre.notna() & post.notna()
+            pre_abs = pre.abs()
+            tol = pre_abs * (pct / 100.0)
+            tol = tol.where(pre_abs != 0, 0.0)
+            allowed_post = pre + tol
+
+            worse = valid & (post > pre)
+            within_tol = valid & (post <= allowed_post)
+            tolerated = worse & within_tol
+
+            if tolerated.any():
+                tolerated_worse_positions = set(df.loc[tolerated, "position"].astype(int).tolist())
+                if self.debug:
+                    sample_pos = sorted(list(tolerated_worse_positions))[:15]
+                    print(
+                        f"[DEBUG] tolerated-worse positions (post>pre but within {pct:g}%): "
+                        f"{sample_pos}" + (" ..." if len(tolerated_worse_positions) > 15 else "")
+                    )
 
         # Coerce to numeric (merged score files may contain header lines read as data → object dtype)
         ptm_numeric = pd.to_numeric(df[ptm_column], errors='coerce')
@@ -575,6 +645,17 @@ class PTMAnalyzer:
             fontweight='bold',
         )
 
+        # Color x-tick labels for positions that were allowed to be worse within tolerance.
+        # (Bars keep the standard wild-type/new color mapping.)
+        if tolerated_worse_positions:
+            warn_color = "#b45309"  # amber/brown: visible but not alarming red
+            for tick, pos in zip(ax.get_xticklabels(), ptm_mean.index):
+                try:
+                    if int(pos) in tolerated_worse_positions:
+                        tick.set_color(warn_color)
+                except Exception:
+                    continue
+
         # Y-tick labels: standard size, bold to match x-axis
         ax.tick_params(axis='y', labelsize=plotter.FONT_SIZE_TICKS)
         for label in ax.get_yticklabels():
@@ -626,7 +707,8 @@ class PTMAnalyzer:
     def analyze_ptm_data(self, input_file: str, chain_id: str, pdb_file: str,
                          output_dir: str,
                          glycan_positions_override: Optional[List[int]] = None,
-                         glycan_model_tag: str = "no_glycans") -> None:
+                         glycan_model_tag: str = "no_glycans",
+                         allow_worse_scores_pct: float = 0.0) -> None:
         """
         Main function to run PTM analysis.
 
@@ -651,10 +733,11 @@ class PTMAnalyzer:
         print(f"Chain ID: {chain_id}")
         print(f"PDB file: {pdb_file}")
         print(f"Output directory: {output_dir}")
+        print(f"Allow worse scores pct: {allow_worse_scores_pct}")
         print("=" * 60)
         
         # Load PTM data
-        PTM_data = self.load_ptm_data(input_file)
+        PTM_data = self.load_ptm_data(input_file, allow_worse_scores_pct=allow_worse_scores_pct)
         
         # Split 'description' before the second last occurrence of "_"
         descriptions_split = PTM_data['description'].str.rsplit('_', n=2).str[0]
@@ -692,7 +775,13 @@ class PTMAnalyzer:
             # Generate the plot (tag distinguishes glycans vs no_glycans pipeline outputs)
             safe_tag = glycan_model_tag.replace(os.sep, "_").replace(" ", "_")
             output_file = os.path.join(output_dir, f"ptm_analysis_{name_label}_{safe_tag}.png")
-            self.plot_ptm_by_position(group_df, wild_type_positions, name_label, output_file)
+            self.plot_ptm_by_position(
+                group_df,
+                wild_type_positions,
+                name_label,
+                output_file,
+                allow_worse_scores_pct=allow_worse_scores_pct,
+            )
             print(f"Plot saved to: {output_file}")
         
         print("\n" + "=" * 60)
