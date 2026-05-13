@@ -118,23 +118,6 @@ The entrypoint is **`./run_glass_nextflow.sh`** (Nextflow). It reads `config/con
 
 **Prerequisites:** minimal conda env for Nextflow + Java, and the project venv for Python/PyRosetta (same split as below):
 
-1. **Conda env (Nextflow + Java only):**
-
-   ```bash
-   mamba env create -n glass-nextflow -f environments/nextflow.yml
-   mamba activate glass-nextflow
-   ```
-
-2. **Project Python with uv** (see [Environment](#environment)): `venv/GLASS` with `uv pip install -r requirements/requirements.txt` and PyRosetta. Do not install GLASS Python deps into the Nextflow conda env.
-
-3. **PATH:** activate **conda first**, then the venv so both `nextflow` and `python` resolve correctly:
-
-   ```bash
-   mamba activate glass-nextflow
-   source venv/GLASS/bin/activate
-   ```
-
-   Or set `GLASS_NEXTFLOW_CONDA_PREFIX` to the conda env path if you only `source` the venv in a batch job.
 
 4. **Run** from the repository root:
 
