@@ -130,6 +130,15 @@ The entrypoint is **`./run_glass_nextflow.sh`** (Nextflow). It reads `config/con
 
    To print the resolved Nextflow command: `export GLASS_NEXTFLOW_DEBUG=1`.
 
+   If run with slurm mode on HPC:
+   If nextflow is kept running on the node, the task will be killed once the user logs out. So we need to send the task to the background and continue the calculation:
+   ```bash
+   ./run_glass_nextflow.sh slurm
+   Ctrl+Z #pauses the task
+   bg #sends it to the background and continues the calculation
+   disown #disconnects the job from your login node
+   ```
+
 **Where to tune local vs Slurm**
 
 | What | Where |
