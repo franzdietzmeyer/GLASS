@@ -31,33 +31,16 @@ This repository hosts the computational models, analysis scripts, and data assoc
 
 ### Environment
 
-1. **Create and activate the virtual environment:**
+1. **install all dependencies and create envirnoments**
 
-    ```bash
-    # Create venv folder
-    mkdir -p venv
-    # Create the virtual ennviroment with python 3.12
-    uv venv --python 3.12 venv/GLASS
-    # Activate the venv
-    source venv/GLASS/bin/activate
-    # Install the required modules for the pipeline
-    uv pip install -r requirements/requirements.txt
+     ```bash
+    ./setup.sh
     ```
+2. **activate the environment**
 
-2. **Install PyRosetta** (required for full GLASS pipeline):
-
-    ```bash
-    # Install the offical PyRosetta version into the activated venv!
-    # DEBUG: This uses the official PyRosetta wheel index.
-    # See docs at: https://graylab.jhu.edu/PyRosetta.documentation/pyrosetta.html
-    uv pip install pyrosetta --find-links https://west.rosettacommons.org/pyrosetta/quarterly/release
+     ```bash
+    source venv/GLASS/bin/activate 
     ```
-
-    If this command fails (e.g. due to missing credentials or network issues),
-    please follow the official [PyRosetta installation guide](https://graylab.jhu.edu/PyRosetta.documentation/pyrosetta.html)
-    for your platform and then re-run the GLASS pipeline.
-
-
 3. **Install the Rosetta Docker image or apptainer container** (for the actual Rosetta jobs):
 
     See [Rosetta](https://github.com/RosettaCommons/rosetta). The pipeline uses the Docker image for running Rosetta:
