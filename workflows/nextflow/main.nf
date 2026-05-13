@@ -22,18 +22,13 @@ process INITIAL_RELAX_REPLICATE {
     tag { "initial_relax_replicate_${replicate_id}" }
     label 'rosetta_initial_relax'
     cpus 1
-    afterScript = {
-        def safe = task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')
-        """
-        bash '${params.launch_dir}/scripts/nextflow_copy_task_logs.sh' '${params.launch_dir}' '${params.result_dir}' 'initial_relax_replicate' '${safe}'
-        """.stripIndent()
-    }
-
-    when:
-    params.initial_relax == true
+    afterScript { "bash '${params.launch_dir}/scripts/nextflow_copy_task_logs.sh' '${params.launch_dir}' '${params.result_dir}' 'initial_relax_replicate' '${task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')}'" }
 
     input:
     val(replicate_id)
+
+    output:
+    val(replicate_id), emit: replicate_done
 
     script:
     def out_dir_rel = new File(params.pdb_path as String).parent ?: '.'
@@ -46,26 +41,19 @@ process INITIAL_RELAX_REPLICATE {
       '${params.config_ini_abs}' \\
       '${out_dir_rel}'
     """
-    output:
-    val(replicate_id), emit: replicate_done
 }
 
 process INITIAL_RELAX_FINALIZE {
     tag 'initial_relax_finalize'
     label 'nf_light'
     cpus 1
-    afterScript = {
-        def safe = task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')
-        """
-        bash '${params.launch_dir}/scripts/nextflow_copy_task_logs.sh' '${params.launch_dir}' '${params.result_dir}' 'initial_relax_finalize' '${safe}'
-        """.stripIndent()
-    }
-
-    when:
-    params.initial_relax == true
+    afterScript { "bash '${params.launch_dir}/scripts/nextflow_copy_task_logs.sh' '${params.launch_dir}' '${params.result_dir}' 'initial_relax_finalize' '${task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')}'" }
 
     input:
     val(replicate_ids)
+
+    output:
+    path 'out/relaxed.pdb', emit: relaxed_pdb
 
     script:
     def out_dir_rel = new File(params.pdb_path as String).parent ?: '.'
@@ -81,23 +69,19 @@ process INITIAL_RELAX_FINALIZE {
     mkdir -p "\$WORK_DIR/out"
     cp '${params.pdb_path_abs}' "\$WORK_DIR/out/relaxed.pdb"
     """
-    output:
-    path 'out/relaxed.pdb', emit: relaxed_pdb
 }
 
 process PREPARE_POSITIONS {
     tag 'prepare_positions'
     label 'nf_light'
     cpus 1
-    afterScript = {
-        def safe = task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')
-        """
-        bash '${params.launch_dir}/scripts/nextflow_copy_task_logs.sh' '${params.launch_dir}' '${params.result_dir}' 'prepare_positions' '${safe}'
-        """.stripIndent()
-    }
+    afterScript { "bash '${params.launch_dir}/scripts/nextflow_copy_task_logs.sh' '${params.launch_dir}' '${params.result_dir}' 'prepare_positions' '${task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')}'" }
 
     input:
     val _ready
+
+    output:
+    val(true), emit: done
 
     script:
     def dbg = params.pipeline_debug ? 'True' : 'False'
@@ -107,8 +91,6 @@ process PREPARE_POSITIONS {
     export GLASS_INPUT_PDB='${params.pdb_path}'
     bash scripts/run_prepare_positions.sh '${params.positions_dir}' ${dbg} '${params.pdb_path}'
     """
-    output:
-    val(true), emit: done
 }
 
 process GLYCAN_MASKING_NOGLY {
@@ -116,17 +98,14 @@ process GLYCAN_MASKING_NOGLY {
     cpus 1
     errorStrategy 'ignore'
     maxRetries 0
-    afterScript = {
-        def safe = task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')
-        """
-        bash '${params.launch_dir}/scripts/nextflow_copy_task_logs.sh' '${params.launch_dir}' '${params.result_dir}' 'glycan_masking_nogly' '${safe}'
-        """.stripIndent()
-    }
+    tag { "mask_${position_id}" }
+    afterScript { "bash '${params.launch_dir}/scripts/nextflow_copy_task_logs.sh' '${params.launch_dir}' '${params.result_dir}' 'glycan_masking_nogly' '${task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')}'" }
 
     input:
     val position_id
 
-    tag "mask_${position_id}"
+    output:
+    val(position_id), emit: done
 
     script:
     """
@@ -139,8 +118,6 @@ process GLYCAN_MASKING_NOGLY {
       '${params.result_dir}/out_by_position/${position_id}' \\
       || true
     """
-    output:
-    val(position_id), emit: done
 }
 
 // Parallel chunk workers: same position may run multiple tasks (batch_id). Each uses chunk nstruct,
@@ -150,17 +127,14 @@ process GLYCAN_MASKING_BATCH {
     cpus 1
     errorStrategy 'ignore'
     maxRetries 0
-    afterScript = {
-        def safe = task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')
-        """
-        bash '${params.launch_dir}/scripts/nextflow_copy_task_logs.sh' '${params.launch_dir}' '${params.result_dir}' 'glycan_masking_batch' '${safe}'
-        """.stripIndent()
-    }
+    tag { "mask_${position_id}_b${batch_id}" }
+    afterScript { "bash '${params.launch_dir}/scripts/nextflow_copy_task_logs.sh' '${params.launch_dir}' '${params.result_dir}' 'glycan_masking_batch' '${task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')}'" }
 
     input:
     tuple val(position_id), val(batch_id)
 
-    tag "mask_${position_id}_b${batch_id}"
+    output:
+    tuple val(position_id), val(batch_id), emit: done
 
     script:
     """
@@ -176,23 +150,19 @@ process GLYCAN_MASKING_BATCH {
       '${params.nstruct}' \\
       || true
     """
-    output:
-    tuple val(position_id), val(batch_id), emit: done
 }
 
 process GLYCAN_MERGE_POSITIONS {
     tag 'merge_position_batches'
     label 'nf_light'
     cpus 1
-    afterScript = {
-        def safe = task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')
-        """
-        bash '${params.launch_dir}/scripts/nextflow_copy_task_logs.sh' '${params.launch_dir}' '${params.result_dir}' 'glycan_merge_positions' '${safe}'
-        """.stripIndent()
-    }
+    afterScript { "bash '${params.launch_dir}/scripts/nextflow_copy_task_logs.sh' '${params.launch_dir}' '${params.result_dir}' 'glycan_merge_positions' '${task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')}'" }
 
     input:
     val _batch_done
+
+    output:
+    val(true), emit: done
 
     script:
     """
@@ -203,23 +173,19 @@ process GLYCAN_MERGE_POSITIONS {
       '${params.result_dir}' \\
       '${params.positions_list}'
     """
-    output:
-    val(true), emit: done
 }
 
 process GLOBAL_MERGE {
     tag 'merge_scores'
     label 'nf_light'
     cpus 1
-    afterScript = {
-        def safe = task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')
-        """
-        bash '${params.launch_dir}/scripts/nextflow_copy_task_logs.sh' '${params.launch_dir}' '${params.result_dir}' 'global_merge' '${safe}'
-        """.stripIndent()
-    }
+    afterScript { "bash '${params.launch_dir}/scripts/nextflow_copy_task_logs.sh' '${params.launch_dir}' '${params.result_dir}' 'global_merge' '${task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')}'" }
 
     input:
     val _ready
+
+    output:
+    val(true), emit: done
 
     script:
     """
@@ -230,23 +196,19 @@ process GLOBAL_MERGE {
       '${params.result_dir}' \\
       '${params.merged_score_path}'
     """
-    output:
-    val(true), emit: done
 }
 
 process ANALYZE {
     tag 'analyze'
     label 'nf_light'
     cpus 1
-    afterScript = {
-        def safe = task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')
-        """
-        bash '${params.launch_dir}/scripts/nextflow_copy_task_logs.sh' '${params.launch_dir}' '${params.result_dir}' 'analyze' '${safe}'
-        """.stripIndent()
-    }
+    afterScript { "bash '${params.launch_dir}/scripts/nextflow_copy_task_logs.sh' '${params.launch_dir}' '${params.result_dir}' 'analyze' '${task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')}'" }
 
     input:
     val _ready
+
+    output:
+    val(true), emit: done
 
     script:
     """
@@ -259,23 +221,19 @@ process ANALYZE {
       '${params.analysis_marker}' \\
       '${params.out_dir}'
     """
-    output:
-    val(true), emit: done
 }
 
 process POSITION_RUN_AUDIT {
     tag 'position_run_audit'
     label 'nf_light'
     cpus 1
-    afterScript = {
-        def safe = task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')
-        """
-        bash '${params.launch_dir}/scripts/nextflow_copy_task_logs.sh' '${params.launch_dir}' '${params.result_dir}' 'position_run_audit' '${safe}'
-        """.stripIndent()
-    }
+    afterScript { "bash '${params.launch_dir}/scripts/nextflow_copy_task_logs.sh' '${params.launch_dir}' '${params.result_dir}' 'position_run_audit' '${task.name.replaceAll(/[^a-zA-Z0-9_.-]/, '_')}'" }
 
     input:
     val _ready
+
+    output:
+    val(true), emit: done
 
     script:
     """
@@ -285,8 +243,6 @@ process POSITION_RUN_AUDIT {
       '${params.result_dir}' \\
       '${params.positions_list}'
     """
-    output:
-    val(true), emit: done
 }
 
 // -----------------------------------------------------------------------------

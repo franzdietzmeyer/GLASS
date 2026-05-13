@@ -28,7 +28,7 @@
 #SBATCH --job-name=GLASS
 #SBATCH --output=GLASS_%j.out
 #SBATCH --error=GLASS_%j.err
-#SBATCH --time=48:00:00
+#SBATCH --time=02:00:00
 #SBATCH --mem=1GB
 #SBATCH --cpus-per-task=1
 #SBATCH --partition=paul

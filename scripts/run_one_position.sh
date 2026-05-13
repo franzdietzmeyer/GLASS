@@ -4,13 +4,13 @@
 # Usage: run_one_position.sh <pdb_path> <position_string> <enhanced> <glycan_model> <container> <job_output_dir> [batch_id] [batch_size] [total_nstruct]
 # Optional batch args (7,8,9): glycans / glycans_forced parallel mode — multiple jobs per position share one output dir,
 #   one scorefile ({pdb}_position{id}.sc), -nstruct = chunk per job, MPWOD + stagger (see below).
-# no_glycans / no_glycans_forced: Rosetta always includes -multiple_processes_writing_to_one_directory (non-glycans protocol).
+# no_glycans / no_glycans_forced: single job per position, never uses -multiple_processes_writing_to_one_directory.
 # Output: <job_output_dir>/{pdb_name}_position{position_id}.sc
 # Reads nstruct and RMSD_filter from config.ini (unless overridden by batch args for chunk size).
 #
 # DEBUG env:
 #   GLASS_MASKING_DEBUG=1           — verbose
-#   GLASS_MASKING_MPWOD=0           — omit MPWOD for glycans *parallel* batches only (testing; no_glycans always uses MPWOD)
+#   GLASS_MASKING_MPWOD=0           — omit MPWOD for glycans *parallel* batches only (testing)
 #   GLASS_PARALLEL_STAGGER_SECONDS  — sleep (batch_id-1)*N before Rosetta in parallel mode (default 2)
 #
 set -euo pipefail
@@ -150,15 +150,15 @@ if [[ "$glycan_parallel" -eq 1 ]] && [[ "${GLASS_PARALLEL_STAGGER_SECONDS}" =~ ^
     fi
 fi
 
-# MPWOD: no_glycans — always pass the flag (simple, single job per position). Glycans parallel batches —
-# only when GLASS_MASKING_MPWOD != 0 (multiple processes sharing one scorefile/dir).
+# MPWOD: only for glycans/glycans_forced parallel batches (multiple jobs sharing one scorefile/dir).
+# no_glycans/no_glycans_forced run as a single job per position — MPWOD must NOT be set, otherwise
+# Rosetta skips writing the column-header row (assumes a sibling process wrote it) and the scorefile
+# ends up with only SEQUENCE/SCORE lines and data rows but no field-name header.
 _EXTRA_MPWOD=()
 if [[ "$glycan_model" == "glycans" || "$glycan_model" == "glycans_forced" ]] && [[ "$glycan_parallel" -eq 1 ]]; then
     if [[ "${GLASS_MASKING_MPWOD}" != "0" ]]; then
         _EXTRA_MPWOD=(-multiple_processes_writing_to_one_directory)
     fi
-elif [[ "$glycan_model" != "glycans" && "$glycan_model" != "glycans_forced" ]]; then
-    _EXTRA_MPWOD=(-multiple_processes_writing_to_one_directory)
 fi
 
 # Determine container backend from config (docker or apptainer); default to docker.

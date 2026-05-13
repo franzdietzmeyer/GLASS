@@ -158,6 +158,40 @@ class DataProcessor:
         """
         self.debug = debug
         self.glycan_analyzer = GlycanAnalyzer(debug=debug)
+
+    def _resolve_glycan_energy_columns(self, df: pd.DataFrame) -> Tuple[str, str]:
+        """
+        Resolve pre/post energy column names used to compute d_total_score.
+
+        Pre-energy is expected from native metrics; post-energy may come from
+        multiple score schemas depending on Rosetta protocol/version.
+        """
+        pre_candidates = ("native_total_energy", "native_total_score")
+        post_candidates = (
+            "total_score_filter",   # preferred legacy glycan analysis column
+            "final_total_energy",   # simple metrics post-state
+            "r_total_energy",       # older/alternate post-state
+            "total_score",          # generic Rosetta score column fallback
+        )
+
+        pre_col = next((c for c in pre_candidates if c in df.columns), None)
+        if pre_col is None:
+            raise ValueError(
+                "Could not compute d_total_score: missing native pre-energy column. "
+                f"Tried {list(pre_candidates)}; available columns: {list(df.columns)}"
+            )
+
+        post_col = next((c for c in post_candidates if c in df.columns), None)
+        if post_col is None:
+            raise ValueError(
+                "Could not compute d_total_score: missing post-energy column. "
+                f"Tried {list(post_candidates)}; available columns: {list(df.columns)}"
+            )
+
+        if self.debug:
+            print(f"[DEBUG] d_total_score columns resolved: post={post_col}, pre={pre_col}")
+
+        return pre_col, post_col
     
     def process_glycan_data(self, scorefile: str, construct: str, percentage_cutoff: float, 
                           ptm_cutoff: float, pdb_file: str, glycan_positions: List[int], 
@@ -192,9 +226,24 @@ class DataProcessor:
         except Exception as e:
             print(f"Error reading score file {scorefile}: {e}")
             raise
+
+        # Guard against placeholder/empty merged scorefiles, e.g. files containing only:
+        #   SEQUENCE
+        #   SCORE
+        # which can be produced when all per-position Rosetta jobs failed.
+        if df_glycan.empty or set(df_glycan.columns) == {"SCORE"}:
+            raise ValueError(
+                "Score file contains no analyzable decoy rows "
+                f"(rows={len(df_glycan)}, columns={list(df_glycan.columns)}). "
+                "This usually means upstream Rosetta jobs produced no valid score entries "
+                "and merge_score_files.py wrote a placeholder file. "
+                "Please inspect per-position logs/scorefiles for failures."
+            )
         
-        # Calculate delta total score
-        df_glycan['d_total_score'] = df_glycan['total_score_filter'] - df_glycan['native_total_energy']
+        # Calculate delta total score (post - pre) with schema-aware column detection.
+        pre_col, post_col = self._resolve_glycan_energy_columns(df_glycan)
+        df_glycan['d_total_score'] = pd.to_numeric(df_glycan[post_col], errors='coerce') - \
+                                     pd.to_numeric(df_glycan[pre_col], errors='coerce')
         df_glycan['new_desc'] = df_glycan['description'].str[:-5]
         df_glycan.dropna(inplace=True)
 

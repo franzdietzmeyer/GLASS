@@ -3,8 +3,9 @@ Unit tests for data_processing module.
 """
 import tempfile
 import pytest
+import pandas as pd
 
-from data_processing import read_scorefile_robust, sequon_type_from_final_sequence
+from data_processing import DataProcessor, read_scorefile_robust, sequon_type_from_final_sequence
 
 
 def _write_score_file(path: str, header: str, *data_lines: str) -> None:
@@ -92,3 +93,52 @@ class TestSequonTypeFromFinalSequence:
     def test_invalid_returns_none(self):
         assert sequon_type_from_final_sequence("", enhanced=False) is None
         assert sequon_type_from_final_sequence("ABC", enhanced=False) is None
+
+
+class TestResolveGlycanEnergyColumns:
+    """Tests for schema-aware glycan d_total_score column resolution."""
+
+    def test_prefers_total_score_filter_when_available(self):
+        df = pd.DataFrame(
+            {
+                "native_total_energy": [1.0],
+                "total_score_filter": [2.0],
+                "final_total_energy": [3.0],
+            }
+        )
+        processor = DataProcessor(debug=False)
+        pre_col, post_col = processor._resolve_glycan_energy_columns(df)
+        assert pre_col == "native_total_energy"
+        assert post_col == "total_score_filter"
+
+    def test_falls_back_to_total_score_when_filter_missing(self):
+        df = pd.DataFrame(
+            {
+                "native_total_energy": [1.0],
+                "total_score": [2.0],
+            }
+        )
+        processor = DataProcessor(debug=False)
+        pre_col, post_col = processor._resolve_glycan_energy_columns(df)
+        assert pre_col == "native_total_energy"
+        assert post_col == "total_score"
+
+
+class TestProcessGlycanDataGuards:
+    """Guards for empty/placeholder merged scorefiles."""
+
+    def test_raises_clear_error_for_placeholder_scorefile(self, monkeypatch):
+        processor = DataProcessor(debug=False)
+        placeholder = pd.DataFrame(columns=["SCORE"])
+        monkeypatch.setattr("data_processing.read_scorefile_robust", lambda *args, **kwargs: placeholder)
+
+        with pytest.raises(ValueError, match="no analyzable decoy rows"):
+            processor.process_glycan_data(
+                scorefile="dummy.sc",
+                construct="construct",
+                percentage_cutoff=25.0,
+                ptm_cutoff=0.5,
+                pdb_file="dummy.pdb",
+                glycan_positions=[],
+                motif="NxT",
+            )

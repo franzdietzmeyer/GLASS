@@ -33,6 +33,45 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GLASS_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$GLASS_ROOT/analysis"
 
+# Guard: skip analysis cleanly when merged scorefile has no analyzable rows.
+# This happens when upstream position runs produced only placeholders.
+scorefile_abs="../$scorefile"
+has_description_col=0
+has_data_rows=0
+if [[ -f "$scorefile_abs" ]]; then
+    if awk '
+        NR==2 {
+            for (i=1; i<=NF; i++) {
+                if ($i == "description") {
+                    found_desc=1
+                }
+            }
+        }
+        NR>2 && NF>0 { data_rows++ }
+        END {
+            if (found_desc) exit 0
+            exit 1
+        }
+    ' "$scorefile_abs"; then
+        has_description_col=1
+    fi
+
+    if awk 'NR>2 && NF>0 {count++} END {exit !(count>0)}' "$scorefile_abs"; then
+        has_data_rows=1
+    fi
+fi
+
+if [[ "$has_description_col" -eq 0 || "$has_data_rows" -eq 0 ]]; then
+    echo "GLASS analysis: warning: scorefile '../$scorefile' has no analyzable decoy rows (missing 'description' column or data rows). Skipping analysis step." >&2
+    mkdir -p "../$out_dir/analysis_results"
+    printf "Analysis skipped: no analyzable rows in merged scorefile (%s)\n" "../$scorefile" \
+      > "../$out_dir/analysis_results/analysis_skipped_no_valid_rows.txt"
+    cd "$GLASS_ROOT"
+    mkdir -p "$(dirname "$output_marker")"
+    touch "$output_marker"
+    exit 0
+fi
+
 # DEBUG: GLASS_ANALYSIS_DEBUG=1 prints routing details.
 if [[ "${GLASS_ANALYSIS_DEBUG:-0}" == "1" ]]; then
     echo "[DEBUG] run_analysis: raw glycan_model line value='${_raw_gm}' normalized='${glycan_model}'" >&2

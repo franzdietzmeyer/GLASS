@@ -32,7 +32,7 @@
         	# Calculate total_score
         	<TotalEnergyMetric name="total_energy" use_native="0"/>
         	# Calculate total_score after the design
-        	<TotalEnergyMetric name="total_energy_design" reference_name="store_native"/>
+        	<TotalEnergyMetric name="total_energy_design" reference_name="store_native" custom_type="total_energy_design"/>
 
         	<SequenceMetric name="sequence" residue_selector="motif"/>
         	<SasaMetric name="sasa" residue_selector="select"/>
@@ -55,7 +55,7 @@
         	<CreateGlycanSequonMover name="motif_creator" basic_enhanced_n_sequon="%%enhanced%%" residue_selector="select" design_neighbors="False" scorefxn="beta"/>
         	# Run different metrics to add to the scorefile for later analysis
         	<RunSimpleMetrics name="pre_metrics" metrics="sasa,total_energy,sequence" prefix="native_"/>
-        	<RunSimpleMetrics name="post_metrics" metrics="sasa,total_energy,RMSD" prefix="r_"/>
+        	<RunSimpleMetrics name="post_metrics" metrics="sasa,total_energy,total_energy_design,RMSD" prefix="r_"/>
         	<RunSimpleMetrics name="motif_RMSD" metrics="RMSD_motif" prefix="pre_"/>
         	<RunSimpleMetrics name="post_metrics2" metrics="sasa,total_energy,sequence,RMSD" prefix="final_"/>
         	<RunSimpleMetrics name="motif_RMSD2" metrics="RMSD_motif" prefix="post_"/>
@@ -71,6 +71,7 @@
         	<FastRelax name="full_relax" task_operations="ifcl"/>
         	# Store poses for later filtering
         	<StoreResidueSubset name="store_if" residue_selector="full_pose" subset_name="store_native"/>
+        	<SavePoseMover name="save_native" restore_pose="0" reference_name="store_native"/>
 
 
 			
@@ -84,16 +85,17 @@
 			<ParsedProtocol name="glycans" >
            		<Add mover="pre_metrics"/>
         		<Add mover="store_if"/>
+        		<Add mover="save_native"/>
        			<Add mover="motif_creator"/>
         		<Add mover ="neighborhood_relax"/>
-        		<Add mover="post_metrics"/> 
+        		<Add mover="post_metrics"/>
 				<Add mover="motif_RMSD"/>
-				<Add filter="total_score_filter"/>
 				<Add filter="RMSD_filter"/>
 				<Add mover="PTM_prediction"/>
         		<Add mover="glycosylate"/>
         		<Add mover="tree_modeler"/>
 				<Add mover="full_relax"/>
+				<Add filter="total_score_filter"/>
 				<Add filter="RMSD_filter"/>
 				<Add mover="post_metrics2"/>
 				<Add mover="motif_RMSD2"/>
@@ -103,16 +105,17 @@
 			<ParsedProtocol name="glycans_forced" >
            		<Add mover="pre_metrics"/>
         		<Add mover="store_if"/>
+        		<Add mover="save_native"/>
        			<Add mover="motif_creator"/>
         		<Add mover ="neighborhood_relax"/>
-        		<Add mover="post_metrics"/> 
+        		<Add mover="post_metrics"/>
 				<Add mover="motif_RMSD"/>
-				<Add filter="total_score_filter"/>
 				<Add filter="RMSD_filter"/>
 				<Add mover="PTM_prediction"/>
         		<Add mover="glycosylate"/>
         		<Add mover="tree_modeler"/>
 				<Add mover="full_relax"/>
+				<Add filter="total_score_filter"/>
 				<Add filter="RMSD_filter"/>
 				<Add mover="post_metrics2"/>
 				<Add mover="motif_RMSD2"/>
@@ -121,15 +124,16 @@
 			<ParsedProtocol name="no_glycans" >
            		<Add mover="pre_metrics"/>
         		<Add mover="store_if"/>
+        		<Add mover="save_native"/>
        			<Add mover="motif_creator"/>
         		<Add mover="neighborhood_relax"/>
-        		<Add mover="post_metrics"/> 
+        		<Add mover="post_metrics"/>
 				<Add mover="motif_RMSD"/>
-				<Add filter="total_score_filter"/>
 				<Add filter="RMSD_filter"/>
 				<Add mover="PTM_prediction"/>
-				<!--Add mover="full_relax"/-->
-				<!--Add filter="RMSD_filter"/-->
+				<Add mover="full_relax"/>
+				<Add filter="total_score_filter"/>
+				<Add filter="RMSD_filter"/>
 				<Add mover="post_metrics2"/>
 				<Add mover="motif_RMSD2"/>
         	</ParsedProtocol>
@@ -138,15 +142,16 @@
 			<ParsedProtocol name="no_glycans_forced" >
            		<Add mover="pre_metrics"/>
         		<Add mover="store_if"/>
+        		<Add mover="save_native"/>
        			<Add mover="motif_creator"/>
         		<Add mover="neighborhood_relax"/>
-        		<Add mover="post_metrics"/> 
+        		<Add mover="post_metrics"/>
 				<Add mover="motif_RMSD"/>
-				<Add filter="total_score_filter"/>
 				<Add filter="RMSD_filter"/>
 				<Add mover="PTM_prediction"/>
-				<!--Add mover="full_relax"/-->
-				<!--Add filter="RMSD_filter"/-->
+				<Add mover="full_relax"/>
+				<Add filter="total_score_filter"/>
+				<Add filter="RMSD_filter"/>
 				<Add mover="post_metrics2"/>
 				<Add mover="motif_RMSD2"/>
         	</ParsedProtocol>
@@ -159,3 +164,4 @@
 
 	<OUTPUT scorefxn="beta"/>
 </ROSETTASCRIPTS>
+

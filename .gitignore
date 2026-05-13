@@ -64,3 +64,4 @@ build/
 dist/
 *.egg-info/
 *.pdb
+!input_files/*.pdb
