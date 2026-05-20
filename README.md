@@ -59,6 +59,8 @@ apptainer pull rosetta_ml.sif docker://rosettacommons/rosetta:ml
 
 ## Usage
 
+![GLASS glyco](https://github.com/franzdietzmeyer/GLASS/blob/reduced_uv/glass%20(1).png) "GLASS — Glycan Analysis for Epitope Site Shielding")
+
 ### 1. Prepare Input Files
 
 Place the `.pdb` file you want to work with in the `input_files/` folder.
