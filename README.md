@@ -59,7 +59,6 @@ apptainer pull rosetta_ml.sif docker://rosettacommons/rosetta:ml
 
 ## Usage
 
-![GLASS glyco](https://github.com/franzdietzmeyer/GLASS/blob/reduced_uv/glass%20(1).png) "GLASS — Glycan Analysis for Epitope Site Shielding")
 
 ### 1. Prepare Input Files
 
@@ -130,6 +129,9 @@ The entrypoint is `./run_glass_nextflow.sh` (Nextflow). It reads `config/config.
 ```
 
 To print the resolved Nextflow command before execution: `export GLASS_NEXTFLOW_DEBUG=1`.
+
+![GLASS glyco](https://github.com/franzdietzmeyer/GLASS/blob/reduced_uv/glass2.png)
+
 
 **Running on HPC with Slurm:**
 
