@@ -131,8 +131,6 @@ The entrypoint is `./run_glass_nextflow.sh` (Nextflow). It reads `config/config.
 
 To print the resolved Nextflow command before execution: `export GLASS_NEXTFLOW_DEBUG=1`.
 
-![GLASS glyco](https://github.com/franzdietzmeyer/GLASS/blob/reduced_uv/glass_alt.png)
-
 
 **Running on HPC with Slurm:**
 
