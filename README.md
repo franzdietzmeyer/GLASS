@@ -155,7 +155,7 @@ See `workflows/nextflow/conf/README.md` for full profile documentation. On HPC s
 
 > **Note:** Previous Snakemake workflows were removed in favor of Nextflow. Older reproducibility commands can be recovered from git history if needed.
 
-![GLASS glyco](https://github.com/franzdietzmeyer/GLASS/blob/reduced_uv/glass_alt.png)
+![GLASS glyco](https://github.com/franzdietzmeyer/GLASS/blob/reduced_uv/glass_alter.png)
 
 
 ---
